@@ -2,6 +2,8 @@
 name = "leptos_workers"
 version = "0.1.0"
 edition = "2021"
+description = "WebWorker library for the Leptos web framework."
+license = "MIT OR Apache-2.0"
 
 [features]
 default = ["json"]
