@@ -128,7 +128,7 @@ impl<W: FutureWorker> PoolExecutor<W> {
         let mut handle = worker.borrow_mut().handle.clone();
         Ok((
             abort_handle,
-            release_worker_after_future(worker.clone(), async move { handle.run(&request).await }),
+            release_worker_after_future(worker, async move { handle.run(&request).await }),
         ))
     }
 }
@@ -170,7 +170,7 @@ impl<W: CallbackWorker> PoolExecutor<W> {
         let mut handle = worker.borrow_mut().handle.clone();
         Ok((
             abort_handle,
-            release_worker_after_future(worker.clone(), async move {
+            release_worker_after_future(worker, async move {
                 handle.stream_callback(&request, callback).await;
             }),
         ))

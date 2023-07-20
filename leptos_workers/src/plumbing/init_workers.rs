@@ -49,22 +49,24 @@ pub fn init_workers() {
         */
         let request: WorkerRequest = serde_wasm_bindgen::from_value(event.data())
             .expect("failed to deserialize worker message");
-        spawn_local(async move {
-            match request.request_type {
-                WorkerRequestType::Future => {
+        match request.request_type {
+            WorkerRequestType::Future => {
+                spawn_local(async move {
                     on_message_future_worker(&worker_scope, &request).await;
-                }
-                WorkerRequestType::Stream => {
-                    on_message_stream_worker(&worker_scope, &request).await;
-                }
-                WorkerRequestType::Callback => {
-                    on_message_callback_worker(worker_scope, &request).await;
-                }
-                WorkerRequestType::Channel => {
-                    on_message_channel_worker(&request).await;
-                }
+                });
             }
-        });
+            WorkerRequestType::Stream => {
+                spawn_local(async move {
+                    on_message_stream_worker(&worker_scope, &request).await;
+                });
+            }
+            WorkerRequestType::Callback => {
+                on_message_callback_worker(worker_scope, &request);
+            }
+            WorkerRequestType::Channel => {
+                on_message_channel_worker(&request);
+            }
+        }
     });
 
     custom_worker_scope.set_onmessage(onmessage.as_ref().unchecked_ref());
@@ -72,7 +74,7 @@ pub fn init_workers() {
     onmessage.forget();
 }
 
-async fn on_message_channel_worker(request: &WorkerRequest) {
+fn on_message_channel_worker(request: &WorkerRequest) {
     let cell = CHANNEL_WORKER_FN
         .lock()
         .expect("failed to lock mutex for ChannelWorker");
@@ -93,10 +95,7 @@ async fn on_message_channel_worker(request: &WorkerRequest) {
     );
 }
 
-async fn on_message_callback_worker(
-    worker_scope: DedicatedWorkerGlobalScope,
-    request: &WorkerRequest,
-) {
+fn on_message_callback_worker(worker_scope: DedicatedWorkerGlobalScope, request: &WorkerRequest) {
     let cell = CALLBACK_WORKER_FN
         .lock()
         .expect("failed to lock mutex for CallbackWorker");
