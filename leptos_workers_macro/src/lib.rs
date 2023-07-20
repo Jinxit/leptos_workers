@@ -13,9 +13,8 @@ use syn::punctuated::Punctuated;
 use syn::spanned::Spanned;
 use syn::token::Comma;
 use syn::{
-    AngleBracketedGenericArguments, FnArg, GenericArgument, ItemFn, ParenthesizedGenericArguments,
-    Pat, PatType, PathArguments, PathSegment, ReturnType, Stmt, TraitBound, Type, TypeParamBound,
-    TypeTraitObject,
+    FnArg, GenericArgument, ItemFn, Pat, PatType, PathArguments, ReturnType, Stmt, Type,
+    TypeParamBound,
 };
 
 extern crate proc_macro2;
@@ -99,9 +98,9 @@ fn worker_impl(args: TokenStream, item: TokenStream) -> syn::Result<TokenStream>
     abort_call_site!(
         r#"No valid Worker type for function signature. Expected one of:
         async fn future_worker(request: Request) -> Response
-        fn stream_worker(request: Request) -> BoxStream<'static, Response>
-        fn callback_worker(request: Request, callback: Box<dyn Fn(Response)>)
-        fn channel_worker(tx: flume::Sender<Response>, rx: flume::Receiver<Request>)
+        fn stream_worker(request: Request) -> impl Stream<Response>
+        fn callback_worker(request: Request, callback: impl Fn(Response))
+        fn channel_worker(tx: leptos_workers::Sender<Response>, rx: leptos_workers::Receiver<Request>)
     "#
     )
 }
@@ -116,7 +115,8 @@ fn channel_worker_impl(
     statements: &[Stmt],
 ) -> syn::Result<TokenStream> {
     let fn_ident = format_ident!("WORKERS_CHANNEL_{}", &worker_name);
-    let web_worker_part = web_worker_impl(worker_name, request_type, response_type);
+    let web_worker_part =
+        web_worker_impl(worker_name, request_type, &response_type.to_token_stream());
 
     Ok(quote! {
         #web_worker_part
@@ -162,7 +162,8 @@ fn stream_worker_impl(
     statements: &Vec<Stmt>,
 ) -> syn::Result<TokenStream> {
     let fn_ident = format_ident!("WORKERS_STREAM_{}", &worker_name);
-    let web_worker_part = web_worker_impl(worker_name, request_type, response_type);
+    let web_worker_part =
+        web_worker_impl(worker_name, request_type, &response_type.to_token_stream());
 
     Ok(quote! {
         #web_worker_part
@@ -208,8 +209,12 @@ fn callback_worker_impl(
     let fn_ident = format_ident!("WORKERS_CALLBACK_{}", &worker_name);
     let callback_pat_type = get_callback_pat_type(inputs)?;
     let callback_pat = &callback_pat_type.pat;
-    let response_type = get_response_type_from_callback(&callback_pat_type.ty)?;
-    let web_worker_part = web_worker_impl(worker_name, request_type, response_type);
+    let response_type =
+        get_response_type_from_callback(&callback_pat_type.ty).ok_or_else(move || {
+            syn::Error::new(callback_pat_type.ty.span(), "Invalid type for callback")
+        })?;
+    let web_worker_part =
+        web_worker_impl(worker_name, request_type, &response_type.to_token_stream());
 
     Ok(quote! {
         #web_worker_part
@@ -255,7 +260,8 @@ fn future_worker_impl(
 ) -> syn::Result<TokenStream> {
     let fn_ident = format_ident!("WORKERS_FUTURE_{}", &worker_name);
     let response_type = get_response_type_from_output(output)?;
-    let web_worker_part = web_worker_impl(worker_name, request_type, response_type);
+    let web_worker_part =
+        web_worker_impl(worker_name, request_type, &response_type.to_token_stream());
 
     Ok(quote! {
         #web_worker_part
@@ -290,7 +296,11 @@ fn future_worker_impl(
     })
 }
 
-fn web_worker_impl(worker_name: &Ident, request_type: &Type, response_type: &Type) -> TokenStream {
+fn web_worker_impl(
+    worker_name: &Ident,
+    request_type: &Type,
+    response_type: &TokenStream,
+) -> TokenStream {
     quote! {
         #[derive(Debug, Clone)]
         pub struct #worker_name;
@@ -353,54 +363,67 @@ fn get_pat_type_from_typed_fn_arg(fn_arg: &FnArg) -> Option<&PatType> {
 }
 
 fn get_generic_inner_type(ty: &Type) -> Option<&Type> {
-    if let Type::Path(path) = ty {
-        let generic_args = path.path.segments.iter().find_map(|s| match &s.arguments {
-            PathArguments::AngleBracketed(args) => Some(args),
-            _ => None,
-        })?;
-        let first_typed = generic_args.args.iter().find_map(|a| match &a {
-            GenericArgument::Type(ty) => Some(ty),
-            _ => None,
-        })?;
+    match ty {
+        Type::Path(path) => {
+            let generic_args = path.path.segments.iter().find_map(|s| match &s.arguments {
+                PathArguments::AngleBracketed(args) => Some(args),
+                _ => None,
+            })?;
+            let first_typed = generic_args.args.iter().find_map(|a| match &a {
+                GenericArgument::Type(ty) => Some(ty),
+                _ => None,
+            })?;
 
-        Some(first_typed)
-    } else {
-        None
+            Some(first_typed)
+        }
+        Type::ImplTrait(impl_trait) => {
+            let generic_args = impl_trait
+                .bounds
+                .iter()
+                .filter_map(|b| match &b {
+                    TypeParamBound::Trait(trait_bound) => Some(trait_bound),
+                    _ => None,
+                })
+                .flat_map(|tb| &tb.path.segments)
+                .find_map(|s| match &s.arguments {
+                    PathArguments::AngleBracketed(args) => Some(args),
+                    _ => None,
+                })?;
+            let first_typed = generic_args.args.iter().find_map(|a| match &a {
+                GenericArgument::Type(ty) => Some(ty),
+                _ => None,
+            })?;
+
+            Some(first_typed)
+        }
+        _ => None,
     }
 }
 
-fn get_response_type_from_callback(ty: &Type) -> syn::Result<&Type> {
-    if let Type::Path(path) = ty {
-        if let Some(segment) = path.path.segments.iter().find(|s| s.ident == "Box") {
-            if let PathArguments::AngleBracketed(AngleBracketedGenericArguments { args, .. }) =
-                &segment.arguments
-            {
-                if let Some(GenericArgument::Type(Type::TraitObject(TypeTraitObject {
-                    bounds,
-                    ..
-                }))) = args.first()
-                {
-                    if let Some(TypeParamBound::Trait(TraitBound { path, .. })) = bounds.first() {
-                        if let Some(PathSegment {
-                            arguments:
-                                PathArguments::Parenthesized(ParenthesizedGenericArguments {
-                                    inputs,
-                                    ..
-                                }),
-                            ..
-                        }) = path.segments.iter().find(|s| s.ident == "Fn")
-                        {
-                            if let Some(input) = inputs.first() {
-                                return Ok(input);
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
+fn get_response_type_from_callback(ty: &Type) -> Option<TokenStream> {
+    match ty {
+        Type::ImplTrait(impl_trait) => {
+            let generic_args = impl_trait
+                .bounds
+                .iter()
+                .filter_map(|b| match &b {
+                    TypeParamBound::Trait(trait_bound) => Some(trait_bound),
+                    _ => None,
+                })
+                .flat_map(|tb| &tb.path.segments)
+                .find_map(|s| match &s.arguments {
+                    PathArguments::Parenthesized(args) => Some(args),
+                    _ => None,
+                })?;
+            let first_path = generic_args.inputs.iter().find_map(|a| match &a {
+                Type::Path(path) => Some(path),
+                _ => None,
+            })?;
 
-    Err(syn::Error::new(ty.span(), "Invalid type for callback"))
+            Some(first_path.to_token_stream())
+        }
+        _ => None,
+    }
 }
 
 fn get_response_type_from_stream_output(output: &ReturnType) -> Option<&Type> {
