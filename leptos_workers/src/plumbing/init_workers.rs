@@ -85,8 +85,7 @@ async fn on_message_channel_worker(request: &WorkerRequest) {
     channel(
         &request.request_data,
         Box::new(move |response| {
-            let worker_scope: DedicatedWorkerGlobalScope =
-                JsValue::from(global()).into();
+            let worker_scope: DedicatedWorkerGlobalScope = JsValue::from(global()).into();
             worker_scope
                 .post_message(&response)
                 .expect("failed to post message for ChannelWorker");
@@ -94,7 +93,10 @@ async fn on_message_channel_worker(request: &WorkerRequest) {
     );
 }
 
-async fn on_message_callback_worker(worker_scope: DedicatedWorkerGlobalScope, request: &WorkerRequest) {
+async fn on_message_callback_worker(
+    worker_scope: DedicatedWorkerGlobalScope,
+    request: &WorkerRequest,
+) {
     let cell = CALLBACK_WORKER_FN
         .lock()
         .expect("failed to lock mutex for CallbackWorker");
@@ -114,7 +116,10 @@ async fn on_message_callback_worker(worker_scope: DedicatedWorkerGlobalScope, re
     );
 }
 
-async fn on_message_stream_worker(worker_scope: &DedicatedWorkerGlobalScope, request: &WorkerRequest) {
+async fn on_message_stream_worker(
+    worker_scope: &DedicatedWorkerGlobalScope,
+    request: &WorkerRequest,
+) {
     let mut stream = {
         let cell = STREAM_WORKER_FN
             .lock()
@@ -135,7 +140,10 @@ async fn on_message_stream_worker(worker_scope: &DedicatedWorkerGlobalScope, req
     }
 }
 
-async fn on_message_future_worker(worker_scope: &DedicatedWorkerGlobalScope, request: &WorkerRequest) {
+async fn on_message_future_worker(
+    worker_scope: &DedicatedWorkerGlobalScope,
+    request: &WorkerRequest,
+) {
     let future = {
         let cell = FUTURE_WORKER_FN
             .lock()

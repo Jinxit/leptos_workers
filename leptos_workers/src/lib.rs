@@ -13,10 +13,10 @@ pub mod executors;
 mod plumbing;
 pub mod workers;
 
-pub use futures::future::BoxFuture;
-pub use futures::stream::BoxStream;
 pub use flume::Receiver;
 pub use flume::Sender;
+pub use futures::future::BoxFuture;
+pub use futures::stream::BoxStream;
 pub use leptos_workers_macro::*;
 
 extern crate alloc;
