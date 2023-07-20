@@ -108,7 +108,7 @@ fn worker_impl(args: TokenStream, item: TokenStream) -> syn::Result<TokenStream>
 
 fn channel_worker_impl(
     worker_name: &Ident,
-    _ident: &Ident,
+    ident: &Ident,
     response_pat: &Pat,
     response_type: &Type,
     request_pat: &Pat,
@@ -134,12 +134,28 @@ fn channel_worker_impl(
                 })
             }
         }
+
+        #[allow(clippy::type_complexity)]
+        pub fn #ident() -> Result<
+            (
+                ::leptos_workers::executors::AbortHandle<#worker_name>,
+                ::leptos_workers::Sender<#request_type>,
+                ::leptos_workers::Receiver<#response_type>,
+            ),
+            ::leptos_workers::CreateWorkerError,
+        > {
+            thread_local! {
+                static POOL: ::leptos_workers::executors::PoolExecutor<#worker_name> =
+                    ::leptos_workers::executors::PoolExecutor::<#worker_name>::new(1).unwrap();
+            }
+            POOL.with(move |pool| pool.channel())
+        }
     })
 }
 
 fn stream_worker_impl(
     worker_name: &Ident,
-    _ident: &Ident,
+    ident: &Ident,
     response_type: &Type,
     request_type: &Type,
     request_pat: &Pat,
@@ -162,12 +178,28 @@ fn stream_worker_impl(
                 #(#statements)*
             }
         }
+
+        pub fn #ident(
+            #request_pat: &#request_type,
+        ) -> Result<
+            (
+                ::leptos_workers::executors::AbortHandle<#worker_name>,
+                impl ::leptos_workers::Stream<Item = #response_type>,
+            ),
+            ::leptos_workers::CreateWorkerError,
+        > {
+            thread_local! {
+                static POOL: ::leptos_workers::executors::PoolExecutor<#worker_name> =
+                    ::leptos_workers::executors::PoolExecutor::<#worker_name>::new(2).unwrap();
+            }
+            POOL.with(move |pool| pool.stream(#request_pat))
+        }
     })
 }
 
 fn callback_worker_impl(
     worker_name: &Ident,
-    _ident: &Ident,
+    ident: &Ident,
     inputs: &Punctuated<FnArg, Comma>,
     request_type: &Type,
     request_pat: &Pat,
@@ -193,12 +225,29 @@ fn callback_worker_impl(
                 #(#statements)*
             }
         }
+
+        pub fn #ident(
+            #request_pat: #request_type,
+            #callback_pat: impl Fn(#response_type) + 'static,
+        ) -> Result<
+            (
+                ::leptos_workers::executors::AbortHandle<#worker_name>,
+                impl ::std::future::Future<Output = ()>,
+            ),
+            ::leptos_workers::CreateWorkerError,
+        > {
+            thread_local! {
+                static POOL: ::leptos_workers::executors::PoolExecutor<#worker_name> =
+                    ::leptos_workers::executors::PoolExecutor::<#worker_name>::new(2).unwrap();
+            }
+            POOL.with(move |pool| pool.stream_callback(#request_pat, Box::new(#callback_pat)))
+        }
     })
 }
 
 fn future_worker_impl(
     worker_name: &Ident,
-    _ident: &Ident,
+    ident: &Ident,
     output: &ReturnType,
     request_type: &Type,
     request_pat: &Pat,
@@ -221,6 +270,22 @@ fn future_worker_impl(
             fn run(#request_pat: Self::Request) -> ::leptos_workers::BoxFuture<'static, Self::Response> {
                 #(#statements)*
             }
+        }
+
+        pub fn #ident(
+            #request_pat: #request_type,
+        ) -> Result<
+            (
+                ::leptos_workers::executors::AbortHandle<#worker_name>,
+                impl ::std::future::Future<Output = #response_type>,
+            ),
+            ::leptos_workers::CreateWorkerError,
+        > {
+            thread_local! {
+                static POOL: ::leptos_workers::executors::PoolExecutor<#worker_name> =
+                    ::leptos_workers::executors::PoolExecutor::<#worker_name>::new(2).unwrap();
+            }
+            POOL.with(move |pool| pool.run(#request_pat))
         }
     })
 }
