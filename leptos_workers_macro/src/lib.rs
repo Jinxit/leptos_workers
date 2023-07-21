@@ -6,15 +6,15 @@
 #![allow(clippy::missing_panics_doc)]
 
 use proc_macro2::{Ident, TokenStream};
-use proc_macro_error::{abort_call_site, proc_macro_error};
+use proc_macro_error::proc_macro_error;
 use quote::{format_ident, quote, ToTokens};
 use syn::parse::{Parse, ParseStream};
 use syn::punctuated::Punctuated;
 use syn::spanned::Spanned;
 use syn::token::Comma;
 use syn::{
-    FnArg, GenericArgument, ItemFn, Pat, PatType, PathArguments, ReturnType, Stmt, Type,
-    TypeParamBound,
+    FnArg, GenericArgument, ItemFn, PatType, PathArguments, ReturnType, Stmt, Type, TypeParamBound,
+    Visibility,
 };
 
 extern crate proc_macro2;
@@ -39,84 +39,86 @@ fn worker_impl(args: TokenStream, item: TokenStream) -> syn::Result<TokenStream>
     let inputs = function.sig.inputs;
     let output = function.sig.output;
     let statements = function.block.stmts;
+    let visibility = function.vis;
 
-    if let Some((response_type, request_type)) =
-        get_response_request_types_from_channel_inputs(&inputs)
+    if let Some(request_response_pat_types) =
+        get_response_request_pattern_types_from_channel_inputs(&inputs)
     {
-        if let Some((response_pat, request_pat)) =
-            get_response_request_patterns_from_channel_inputs(&inputs)
-        {
-            // ChannelWorker
-            return channel_worker_impl(
-                &worker_name,
-                &ident,
-                response_pat,
-                response_type,
-                request_pat,
-                request_type,
-                &statements,
-            );
-        }
+        // ChannelWorker
+        return channel_worker_impl(
+            &worker_name,
+            &visibility,
+            &ident,
+            request_response_pat_types,
+            &statements,
+        );
     }
 
     let request_pat_type = get_request_pat_type(&inputs)?;
-    let request_type = &request_pat_type.ty;
-    let request_pat = &request_pat_type.pat;
 
-    if function.sig.asyncness.is_some() {
-        // FutureWorker
-        return future_worker_impl(
-            &worker_name,
-            &ident,
-            &output,
-            request_type,
-            request_pat,
-            &statements,
-        );
-    } else if let ReturnType::Default = output {
+    if let ReturnType::Default = output {
         // CallbackWorker
-        return callback_worker_impl(
+        callback_worker_impl(
             &worker_name,
+            &visibility,
             &ident,
             &inputs,
-            request_type,
-            request_pat,
+            request_pat_type,
             &statements,
-        );
+        )
     } else if let Some(response_type) = get_response_type_from_stream_output(&output) {
         // StreamWorker
         return stream_worker_impl(
             &worker_name,
+            &visibility,
             &ident,
+            &output,
             response_type,
-            request_type,
-            request_pat,
+            request_pat_type,
+            &statements,
+        );
+    } else {
+        // FutureWorker
+        return future_worker_impl(
+            &worker_name,
+            &visibility,
+            &ident,
+            &output,
+            request_pat_type,
             &statements,
         );
     }
-
-    abort_call_site!(
-        r#"No valid Worker type for function signature. Expected one of:
-        async fn future_worker(request: Request) -> Response
-        fn stream_worker(request: Request) -> impl Stream<Response>
-        fn callback_worker(request: Request, callback: impl Fn(Response))
-        fn channel_worker(tx: leptos_workers::Sender<Response>, rx: leptos_workers::Receiver<Request>)
-    "#
-    )
 }
 
 fn channel_worker_impl(
     worker_name: &Ident,
+    visibility: &Visibility,
     ident: &Ident,
-    response_pat: &Pat,
-    response_type: &Type,
-    request_pat: &Pat,
-    request_type: &Type,
+    request_response_pat_types: RequestResponsePatTypes,
     statements: &[Stmt],
 ) -> syn::Result<TokenStream> {
     let fn_ident = format_ident!("WORKERS_CHANNEL_{}", &worker_name);
-    let web_worker_part =
-        web_worker_impl(worker_name, request_type, &response_type.to_token_stream());
+    let RequestResponsePatTypes {
+        request_pat_type,
+        request_type,
+        response_pat_type,
+        response_type,
+    } = request_response_pat_types;
+    let web_worker_part = web_worker_impl(
+        worker_name,
+        visibility,
+        &request_type,
+        &response_type.to_token_stream(),
+    );
+
+    let mut rx_response_type = request_pat_type.ty.clone();
+    replace_generic_inner(&mut rx_response_type, response_type)?;
+    let request_pat = request_pat_type.pat;
+    let mut tx_request_type = response_pat_type.ty.clone();
+    replace_generic_inner(&mut tx_request_type, request_type)?;
+    let response_pat = response_pat_type.pat;
+
+    let creation_error_msg = format!("worker creation failed for {worker_name}");
 
     Ok(quote! {
         #web_worker_part
@@ -128,7 +130,7 @@ fn channel_worker_impl(
         }
 
         impl ::leptos_workers::workers::channel_worker::ChannelWorker for #worker_name {
-            fn channel(#response_pat: ::leptos_workers::Sender<Self::Response>, #request_pat: ::leptos_workers::Receiver<Self::Request>) -> ::leptos_workers::BoxFuture<'static, ()>  {
+            fn channel(#request_pat: ::leptos_workers::Receiver<Self::Request>, #response_pat: ::leptos_workers::Sender<Self::Response>) -> ::leptos_workers::BoxFuture<'static, ()>  {
                 Box::pin(async move {
                     #(#statements)*
                 })
@@ -136,34 +138,44 @@ fn channel_worker_impl(
         }
 
         #[allow(clippy::type_complexity)]
-        pub fn #ident() -> Result<
-            (
-                ::leptos_workers::executors::AbortHandle<#worker_name>,
-                ::leptos_workers::Sender<#request_type>,
-                ::leptos_workers::Receiver<#response_type>,
-            ),
-            ::leptos_workers::CreateWorkerError,
-        > {
+        #visibility async fn #ident() -> (#tx_request_type, #rx_response_type) {
             thread_local! {
                 static POOL: ::leptos_workers::executors::PoolExecutor<#worker_name> =
                     ::leptos_workers::executors::PoolExecutor::<#worker_name>::new(1).unwrap();
             }
-            POOL.with(move |pool| pool.channel())
+            let (_, tx, rx) = POOL.with(move |pool| pool.channel()).expect(#creation_error_msg);
+            (tx, rx)
         }
     })
 }
 
 fn stream_worker_impl(
     worker_name: &Ident,
+    visibility: &Visibility,
     ident: &Ident,
+    output: &ReturnType,
     response_type: &Type,
-    request_type: &Type,
-    request_pat: &Pat,
+    request_pat_type: &PatType,
     statements: &Vec<Stmt>,
 ) -> syn::Result<TokenStream> {
     let fn_ident = format_ident!("WORKERS_STREAM_{}", &worker_name);
-    let web_worker_part =
-        web_worker_impl(worker_name, request_type, &response_type.to_token_stream());
+    let web_worker_part = web_worker_impl(
+        worker_name,
+        visibility,
+        &request_pat_type.ty,
+        &response_type.to_token_stream(),
+    );
+
+    let request_pat = &request_pat_type.pat;
+    let request_type = &request_pat_type.ty;
+
+    let stream_response_impl = get_output_type(output)
+        .ok_or_else(|| syn::Error::new(output.span(), "couldn't get type from Stream output"))?;
+    let stream_response_ident = get_impl_ident(stream_response_impl)
+        .ok_or_else(|| syn::Error::new(output.span(), "couldn't get impl type from Stream output"))?
+        .clone();
+
+    let creation_error_msg = format!("worker creation failed for {worker_name}");
 
     Ok(quote! {
         #web_worker_part
@@ -180,30 +192,24 @@ fn stream_worker_impl(
             }
         }
 
-        pub fn #ident(
+        #visibility async fn #ident(
             #request_pat: &#request_type,
-        ) -> Result<
-            (
-                ::leptos_workers::executors::AbortHandle<#worker_name>,
-                impl ::leptos_workers::Stream<Item = #response_type>,
-            ),
-            ::leptos_workers::CreateWorkerError,
-        > {
+        ) -> impl #stream_response_ident<Item = #response_type> {
             thread_local! {
                 static POOL: ::leptos_workers::executors::PoolExecutor<#worker_name> =
                     ::leptos_workers::executors::PoolExecutor::<#worker_name>::new(2).unwrap();
             }
-            POOL.with(move |pool| pool.stream(#request_pat))
+            POOL.with(move |pool| pool.stream(#request_pat)).expect(#creation_error_msg).1
         }
     })
 }
 
 fn callback_worker_impl(
     worker_name: &Ident,
+    visibility: &Visibility,
     ident: &Ident,
     inputs: &Punctuated<FnArg, Comma>,
-    request_type: &Type,
-    request_pat: &Pat,
+    request_pat_type: &PatType,
     statements: &Vec<Stmt>,
 ) -> syn::Result<TokenStream> {
     let fn_ident = format_ident!("WORKERS_CALLBACK_{}", &worker_name);
@@ -213,8 +219,17 @@ fn callback_worker_impl(
         get_response_type_from_callback(&callback_pat_type.ty).ok_or_else(move || {
             syn::Error::new(callback_pat_type.ty.span(), "Invalid type for callback")
         })?;
-    let web_worker_part =
-        web_worker_impl(worker_name, request_type, &response_type.to_token_stream());
+    let web_worker_part = web_worker_impl(
+        worker_name,
+        visibility,
+        &request_pat_type.ty,
+        &response_type.to_token_stream(),
+    );
+
+    let request_pat = &request_pat_type.pat;
+    let request_type = &request_pat_type.ty;
+
+    let creation_error_msg = format!("worker creation failed for {worker_name}");
 
     Ok(quote! {
         #web_worker_part
@@ -231,37 +246,40 @@ fn callback_worker_impl(
             }
         }
 
-        pub fn #ident(
+        #visibility async fn #ident(
             #request_pat: #request_type,
             #callback_pat: impl Fn(#response_type) + 'static,
-        ) -> Result<
-            (
-                ::leptos_workers::executors::AbortHandle<#worker_name>,
-                impl ::std::future::Future<Output = ()>,
-            ),
-            ::leptos_workers::CreateWorkerError,
-        > {
+        ) {
             thread_local! {
                 static POOL: ::leptos_workers::executors::PoolExecutor<#worker_name> =
-                    ::leptos_workers::executors::PoolExecutor::<#worker_name>::new(2).unwrap();
+                    ::leptos_workers::executors::PoolExecutor::<#worker_name>::new(2).expect(#creation_error_msg);
             }
-            POOL.with(move |pool| pool.stream_callback(#request_pat, Box::new(#callback_pat)))
+            POOL.with(move |pool| pool.stream_callback(#request_pat, Box::new(#callback_pat))).expect(#creation_error_msg).1.await
         }
     })
 }
 
 fn future_worker_impl(
     worker_name: &Ident,
+    visibility: &Visibility,
     ident: &Ident,
     output: &ReturnType,
-    request_type: &Type,
-    request_pat: &Pat,
+    request_pat_type: &PatType,
     statements: &Vec<Stmt>,
 ) -> syn::Result<TokenStream> {
     let fn_ident = format_ident!("WORKERS_FUTURE_{}", &worker_name);
     let response_type = get_response_type_from_output(output)?;
-    let web_worker_part =
-        web_worker_impl(worker_name, request_type, &response_type.to_token_stream());
+    let web_worker_part = web_worker_impl(
+        worker_name,
+        visibility,
+        &request_pat_type.ty,
+        &response_type.to_token_stream(),
+    );
+
+    let request_pat = &request_pat_type.pat;
+    let request_type = &request_pat_type.ty;
+
+    let creation_error_msg = format!("worker creation failed for {worker_name}");
 
     Ok(quote! {
         #web_worker_part
@@ -274,36 +292,33 @@ fn future_worker_impl(
 
         impl ::leptos_workers::workers::future_worker::FutureWorker for #worker_name {
             fn run(#request_pat: Self::Request) -> ::leptos_workers::BoxFuture<'static, Self::Response> {
-                #(#statements)*
+                Box::pin(async move {
+                    #(#statements)*
+                })
             }
         }
 
-        pub fn #ident(
+        #visibility async fn #ident(
             #request_pat: #request_type,
-        ) -> Result<
-            (
-                ::leptos_workers::executors::AbortHandle<#worker_name>,
-                impl ::std::future::Future<Output = #response_type>,
-            ),
-            ::leptos_workers::CreateWorkerError,
-        > {
+        ) -> #response_type {
             thread_local! {
                 static POOL: ::leptos_workers::executors::PoolExecutor<#worker_name> =
-                    ::leptos_workers::executors::PoolExecutor::<#worker_name>::new(2).unwrap();
+                    ::leptos_workers::executors::PoolExecutor::<#worker_name>::new(2).expect(#creation_error_msg);
             }
-            POOL.with(move |pool| pool.run(#request_pat))
+            POOL.with(move |pool| pool.run(#request_pat)).expect(#creation_error_msg).1.await
         }
     })
 }
 
 fn web_worker_impl(
     worker_name: &Ident,
+    visibility: &Visibility,
     request_type: &Type,
     response_type: &TokenStream,
 ) -> TokenStream {
     quote! {
         #[derive(Debug, Clone)]
-        pub struct #worker_name;
+        #visibility struct #worker_name;
 
         impl ::leptos_workers::workers::web_worker::WebWorker for #worker_name {
             type Request = #request_type;
@@ -312,48 +327,79 @@ fn web_worker_impl(
 
         impl ::leptos_workers::workers::web_worker::WebWorkerPath for #worker_name {
             fn path() -> &'static str {
-                /*
-                let path_hash: u64 = ::leptos_workers::xxhash_rust::const_xxh64::xxh64(
-                    concat!(
-                        env!("CARGO_MANIFEST_DIR"),
-                        ":",
-                        file!(),
-                        ":",
-                        line!(),
-                        ":",
-                        column!()
-                    )
-                    .as_bytes(),
-                    0,
-                );
-                std::format!(
-                    "{}_{}"
-                    stringify!(#worker_name),
-                    path_hash
-                )*/
                 stringify!(#worker_name)
             }
         }
     }
 }
 
-fn get_response_request_patterns_from_channel_inputs(
-    inputs: &Punctuated<FnArg, Comma>,
-) -> Option<(&Pat, &Pat)> {
-    let response_pat = &get_pat_type_from_typed_fn_arg(inputs.first()?)?.pat;
-    let request_pat = &get_pat_type_from_typed_fn_arg(inputs.last()?)?.pat;
-    Some((response_pat, request_pat))
+fn get_impl_ident(ty: &Type) -> Option<&Ident> {
+    if let Type::ImplTrait(impl_trait) = ty {
+        let segment = impl_trait
+            .bounds
+            .iter()
+            .filter_map(|b| match b {
+                TypeParamBound::Trait(trait_bound) => Some(trait_bound),
+                _ => None,
+            })
+            .flat_map(|tb| &tb.path.segments)
+            .find(|s| matches!(&s.arguments, PathArguments::AngleBracketed(_)))?;
+
+        Some(&segment.ident)
+    } else {
+        None
+    }
 }
 
-fn get_response_request_types_from_channel_inputs(
-    inputs: &Punctuated<FnArg, Comma>,
-) -> Option<(&Type, &Type)> {
-    let response_type =
-        get_generic_inner_type(&get_pat_type_from_typed_fn_arg(inputs.first()?)?.ty)?;
-    let request_type = get_generic_inner_type(&get_pat_type_from_typed_fn_arg(inputs.last()?)?.ty)?;
-    Some((response_type, request_type))
+fn replace_generic_inner(generic: &mut Type, new_type: Type) -> syn::Result<()> {
+    if let Type::Path(type_paren) = generic {
+        if let Some(generic_args) =
+            type_paren
+                .path
+                .segments
+                .iter_mut()
+                .find_map(|s| match &mut s.arguments {
+                    PathArguments::AngleBracketed(args) => Some(args),
+                    _ => None,
+                })
+        {
+            if let Some(non_lifetime_arg) = generic_args.args.iter_mut().find_map(|a| match a {
+                GenericArgument::Type(ty) => Some(ty),
+                _ => None,
+            }) {
+                *non_lifetime_arg = new_type;
+                return Ok(());
+            }
+        }
+    }
+
+    Err(syn::Error::new(
+        generic.span(),
+        "tried to replace the inner type of a non-generic type",
+    ))
 }
 
+struct RequestResponsePatTypes {
+    request_pat_type: PatType,
+    request_type: Type,
+    response_pat_type: PatType,
+    response_type: Type,
+}
+
+fn get_response_request_pattern_types_from_channel_inputs(
+    inputs: &Punctuated<FnArg, Comma>,
+) -> Option<RequestResponsePatTypes> {
+    let request_pat_type = &get_pat_type_from_typed_fn_arg(inputs.first()?)?;
+    let request_type = get_generic_inner_type(&request_pat_type.ty)?;
+    let response_pat_type = &get_pat_type_from_typed_fn_arg(inputs.last()?)?;
+    let response_type = get_generic_inner_type(&response_pat_type.ty)?;
+    Some(RequestResponsePatTypes {
+        request_pat_type: (*request_pat_type).clone(),
+        request_type: request_type.clone(),
+        response_pat_type: (*response_pat_type).clone(),
+        response_type: response_type.clone(),
+    })
+}
 fn get_pat_type_from_typed_fn_arg(fn_arg: &FnArg) -> Option<&PatType> {
     if let FnArg::Typed(pat_type) = fn_arg {
         Some(pat_type)
@@ -423,6 +469,14 @@ fn get_response_type_from_callback(ty: &Type) -> Option<TokenStream> {
             Some(first_path.to_token_stream())
         }
         _ => None,
+    }
+}
+
+fn get_output_type(output: &ReturnType) -> Option<&Type> {
+    if let ReturnType::Type(_, ty) = output {
+        Some(ty)
+    } else {
+        None
     }
 }
 

@@ -8,8 +8,8 @@ use wasm_bindgen_futures::spawn_local;
 
 pub trait ChannelWorker: WebWorker {
     fn channel(
-        tx: flume::Sender<Self::Response>,
         rx: flume::Receiver<Self::Request>,
+        tx: flume::Sender<Self::Response>,
     ) -> BoxFuture<'static, ()>;
 }
 
@@ -33,7 +33,7 @@ impl ChannelWorkerFn {
             Arc::default();
         let (request_tx, request_rx) = flume::unbounded();
         let (response_tx, response_rx) = flume::unbounded();
-        spawn_local(Box::pin(W::channel(response_tx, request_rx)));
+        spawn_local(Box::pin(W::channel(request_rx, response_tx)));
         spawn_local(Box::pin({
             let callback = callback.clone();
             async move {
