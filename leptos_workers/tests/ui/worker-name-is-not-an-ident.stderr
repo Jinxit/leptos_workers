@@ -1,0 +1,5 @@
+error: invalid worker name: `struct`
+ --> tests/ui/worker-name-is-not-an-ident.rs:3:10
+  |
+3 | #[worker(struct)]
+  |          ^^^^^^

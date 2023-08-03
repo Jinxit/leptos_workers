@@ -13,13 +13,21 @@ pub mod executors;
 mod plumbing;
 pub mod workers;
 
-pub use flume::Receiver;
-pub use flume::Sender;
-pub use futures::future::BoxFuture;
-pub use futures::stream::BoxStream;
-pub use futures::stream::Stream;
 pub use leptos_workers_macro::*;
 pub use plumbing::CreateWorkerError;
+
+pub use flume::Receiver;
+pub use flume::Sender;
+pub use futures::stream::Stream;
+
+#[doc(hidden)]
+pub use futures::future::BoxFuture;
+#[doc(hidden)]
+pub use futures::stream::BoxStream;
+#[doc(hidden)]
+pub use futures::stream::StreamExt;
+#[doc(hidden)]
+pub use wasm_bindgen::prelude::wasm_bindgen;
 
 extern crate alloc;
 extern crate core;
