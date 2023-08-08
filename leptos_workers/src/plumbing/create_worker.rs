@@ -2,7 +2,7 @@ use crate::workers::web_worker::WebWorkerPath;
 use js_sys::Array;
 use thiserror::Error;
 use wasm_bindgen::JsValue;
-use web_sys::{window, Blob, Url, Worker, WorkerOptions, WorkerType};
+use web_sys::{window, Blob, BlobPropertyBag, Url, Worker, WorkerOptions, WorkerType};
 
 #[derive(Error, Debug)]
 pub enum CreateWorkerError {
@@ -32,8 +32,10 @@ pub fn create_worker<W: WebWorkerPath>() -> Result<Worker, CreateWorkerError> {
             .map_err(CreateWorkerError::WasmUrl)?
             .to_string();
 
-        string_to_blob(&format!(
-            r#"
+        string_to_blob(
+            BlobPropertyBag::new().type_("application/javascript"),
+            &format!(
+                r#"
                 import init from "{url}.js";
                 
                 let queue = [];
@@ -76,7 +78,8 @@ pub fn create_worker<W: WebWorkerPath>() -> Result<Worker, CreateWorkerError> {
                 }}
                 load();
             "#
-        ))?
+            ),
+        )?
     };
     let blob_url =
         Url::create_object_url_with_blob(&worker_js_blob).map_err(CreateWorkerError::BlobUrl)?;
@@ -91,10 +94,11 @@ pub fn create_worker<W: WebWorkerPath>() -> Result<Worker, CreateWorkerError> {
     Ok(worker)
 }
 
-fn string_to_blob(s: &str) -> Result<Blob, CreateWorkerError> {
+fn string_to_blob(options: &BlobPropertyBag, s: &str) -> Result<Blob, CreateWorkerError> {
     let json_jsvalue = JsValue::from_str(s);
     #[allow(clippy::from_iter_instead_of_collect)]
     let json_jsvalue_array = Array::from_iter(std::iter::once(json_jsvalue));
 
-    Blob::new_with_str_sequence(&json_jsvalue_array).map_err(CreateWorkerError::BlobUrl)
+    Blob::new_with_str_sequence_and_options(&json_jsvalue_array, options)
+        .map_err(CreateWorkerError::BlobUrl)
 }

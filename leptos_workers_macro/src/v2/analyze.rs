@@ -61,7 +61,6 @@ fn analyze_worker_type(sig: Signature) -> WorkerType {
         let ReturnType::Type(_, return_type) = output else {
             abort!(sig, "couldn't match worker type"; help = VALID_SIGNATURES)
         };
-        // could also be a stream
         if let Some(tokens) = pattern_match_holes(
             &[
                 quote!(impl leptos_workers::Stream<Item = @>),
@@ -76,6 +75,8 @@ fn analyze_worker_type(sig: Signature) -> WorkerType {
                 response_type: parse_quote_spanned!(output.span()=> #tokens),
                 return_type: *return_type.clone(),
             })
+        } else if let Type::ImplTrait(_) = &*return_type.clone() {
+            abort!(return_type, "couldn't match worker type"; help = VALID_SIGNATURES)
         } else {
             WorkerType::Future(WorkerTypeFuture {
                 request_pat: *input.pat.clone(),
