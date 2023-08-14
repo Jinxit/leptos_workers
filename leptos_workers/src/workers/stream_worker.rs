@@ -1,24 +1,33 @@
 use crate::codec;
 use crate::workers::web_worker::WebWorker;
-use futures::stream::BoxStream;
+use futures::stream::LocalBoxStream;
 use futures::StreamExt;
 use std::cell::RefCell;
 use std::sync::Mutex;
 use wasm_bindgen::prelude::*;
 
+/// Takes a single request but can reply with multiple responses.
+///
+/// Its main usage is for running an asynchronous calculation with multiple responses, for example a
+/// computation with an initial decent result which improves as the computation continues.
+///
+/// Workers should be created using the [`#[worker]`](crate::worker#stream) attribute macro.
 pub trait StreamWorker: WebWorker {
-    fn stream(request: Self::Request) -> BoxStream<'static, Self::Response>;
+    /// Executes the worker implementation. Should not be called by user code, use an [Executor](crate::executors) instead.
+    fn stream(request: Self::Request) -> LocalBoxStream<'static, Self::Response>;
 }
 
-#[wasm_bindgen(inspectable)]
+#[wasm_bindgen]
 #[derive(Clone)]
+#[doc(hidden)]
 pub struct StreamWorkerFn {
     pub(crate) path: &'static str,
-    pub(crate) function: fn(&Vec<u8>) -> BoxStream<'static, JsValue>,
+    pub(crate) function: fn(&Vec<u8>) -> LocalBoxStream<'static, JsValue>,
 }
 
 impl StreamWorkerFn {
     #[must_use]
+    #[doc(hidden)]
     pub fn new<W: StreamWorker>() -> Self {
         Self {
             path: W::path(),

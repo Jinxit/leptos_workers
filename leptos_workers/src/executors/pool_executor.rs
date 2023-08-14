@@ -1,21 +1,26 @@
 use crate::plumbing::{CreateWorkerError, WorkerHandle};
-use crate::workers::callback_worker::CallbackWorker;
-use crate::workers::channel_worker::ChannelWorker;
-use crate::workers::future_worker::FutureWorker;
-use crate::workers::stream_worker::StreamWorker;
-use crate::workers::web_worker::WebWorker;
+use crate::workers::CallbackWorker;
+use crate::workers::ChannelWorker;
+use crate::workers::FutureWorker;
+use crate::workers::StreamWorker;
+use crate::workers::WebWorker;
 use alloc::rc::{Rc, Weak};
 use futures::{Stream, StreamExt};
 use std::cell::RefCell;
 use std::future::Future;
 use wasm_bindgen_futures::spawn_local;
 
+/// This executor will run requests on the first available worker in a pool.
+/// 
+/// The pool is created with an initial size, but is allowed to expand infinitely if necessary in order to not block.
 #[derive(Debug, Clone)]
 pub struct PoolExecutor<W: WebWorker> {
     workers: RefCell<Vec<Rc<RefCell<WorkerPoolState<W>>>>>,
 }
 
 impl<W: WebWorker> PoolExecutor<W> {
+    /// # Errors
+    /// See [`CreateWorkerError`].
     pub fn new(initial_size: usize) -> Result<Self, CreateWorkerError> {
         Ok(Self {
             workers: RefCell::new(
@@ -59,6 +64,14 @@ impl<W: WebWorker> PoolExecutor<W> {
     }
 }
 
+/// This handle is returned when spawning a worker using a [`PoolExecutor`].
+/// It can be used to abort a running worker immediately, leading to creation of
+/// a new worker in the pool to replace it.
+/// 
+/// **Note**: If this is used in order to abort a worker and then immediately
+/// start a new computation, it is better to start the new computation *before*
+/// aborting the current one. Otherwise, the new computation will need to wait for
+/// the creation of the replaced worker before it can proceed.
 #[derive(Clone)]
 pub struct AbortHandle<W: WebWorker> {
     worker: Weak<RefCell<WorkerPoolState<W>>>,
@@ -66,6 +79,12 @@ pub struct AbortHandle<W: WebWorker> {
 }
 
 impl<W: WebWorker> AbortHandle<W> {
+    /// Aborts an in-progress worker.
+    ///
+    /// # Panics
+    /// This can panic only if there is a logical error in this crate.
+    /// The only expected error case is worker creation failure, which is intentionally ignored.
+    /// As such, this is not expected to panic for users of the crate.
     pub fn abort(&self) {
         if let Some(ptr) = self.worker.upgrade() {
             let mut worker = ptr.borrow_mut();
@@ -112,6 +131,10 @@ impl<W: WebWorker> WorkerPoolState<W> {
 }
 
 impl<W: FutureWorker> PoolExecutor<W> {
+    /// Runs a [`FutureWorker`] using this executor.
+    ///
+    /// # Errors
+    /// See [`CreateWorkerError`].
     pub fn run(
         &self,
         request: W::Request,
@@ -134,6 +157,10 @@ impl<W: FutureWorker> PoolExecutor<W> {
 }
 
 impl<W: StreamWorker> PoolExecutor<W> {
+    /// Runs a [`StreamWorker`] using this executor.
+    ///
+    /// # Errors
+    /// See [`CreateWorkerError`].
     pub fn stream(
         &self,
         request: &W::Request,
@@ -153,6 +180,10 @@ impl<W: StreamWorker> PoolExecutor<W> {
 }
 
 impl<W: CallbackWorker> PoolExecutor<W> {
+    /// Runs a [`CallbackWorker`] using this executor.
+    ///
+    /// # Errors
+    /// See [`CreateWorkerError`].
     pub fn stream_callback(
         &self,
         request: W::Request,
@@ -178,6 +209,10 @@ impl<W: CallbackWorker> PoolExecutor<W> {
 }
 
 impl<W: ChannelWorker> PoolExecutor<W> {
+    /// Runs a [`ChannelWorker`] using this executor.
+    ///
+    /// # Errors
+    /// See [`CreateWorkerError`].
     pub fn channel(
         &self,
     ) -> Result<

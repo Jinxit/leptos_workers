@@ -8,7 +8,7 @@ pub struct Ast {
     pub item_fn: ItemFn,
 }
 
-pub fn parse(args: TokenStream, item: TokenStream) -> Ast {
+pub fn parse(args: &TokenStream, item: TokenStream) -> Ast {
     if args.is_empty() {
         abort!(
             args,
@@ -17,9 +17,8 @@ pub fn parse(args: TokenStream, item: TokenStream) -> Ast {
         )
     }
 
-    let worker_name = match syn::parse2::<Ident>(args.clone()) {
-        Ok(ident) => ident,
-        Err(_) => abort!(args, format!("invalid worker name: `{args}`")),
+    let Ok(worker_name) = syn::parse2::<Ident>(args.clone()) else {
+        abort!(args, format!("invalid worker name: `{args}`"))
     };
 
     let item_fn = match syn::parse2::<Item>(item) {
@@ -53,7 +52,7 @@ mod tests {
     #[test]
     fn valid_syntax() {
         parse(
-            quote!(Name),
+            &quote!(Name),
             quote!(
                 async fn future_worker(req: TestRequest) -> TestResponse {}
             ),

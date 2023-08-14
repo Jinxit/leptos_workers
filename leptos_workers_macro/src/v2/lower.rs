@@ -30,12 +30,12 @@ impl Parse for Ir {
     }
 }
 
-pub fn lower(model: Model) -> Ir {
-    let worker_struct = lower_worker_struct(&model);
-    let impl_web_worker = lower_impl_web_worker(&model);
-    let impl_web_worker_path = lower_impl_web_worker_path(&model);
-    let wasm_bindgen_func = lower_wasm_bindgen_func(&model);
-    let (default_pool_func, impl_type_worker) = lower_impl_type_worker(&model);
+pub fn lower(model: &Model) -> Ir {
+    let worker_struct = lower_worker_struct(model);
+    let impl_web_worker = lower_impl_web_worker(model);
+    let impl_web_worker_path = lower_impl_web_worker_path(model);
+    let wasm_bindgen_func = lower_wasm_bindgen_func(model);
+    let (default_pool_func, impl_type_worker) = lower_impl_type_worker(model);
 
     Ir {
         worker_struct,
@@ -68,7 +68,7 @@ fn lower_impl_web_worker(model: &Model) -> ItemImpl {
     let request_type = worker_type.request_type();
     let response_type = worker_type.response_type();
     parse_quote!(
-        impl ::leptos_workers::workers::web_worker::WebWorker for #worker_name {
+        impl ::leptos_workers::workers::WebWorker for #worker_name {
             type Request = #request_type;
             type Response = #response_type;
         }
@@ -79,7 +79,7 @@ fn lower_impl_web_worker_path(model: &Model) -> ItemImpl {
     let Model { worker_name, .. } = model;
     let worker_name_str = worker_name.to_string();
     parse_quote!(
-        impl ::leptos_workers::workers::web_worker::WebWorkerPath for #worker_name {
+        impl ::leptos_workers::workers::WebWorkerPath for #worker_name {
             fn path() -> &'static str {
                 #worker_name_str
             }
@@ -148,9 +148,11 @@ fn lower_impl_type_worker_callback(
     );
 
     let imp = parse_quote!(
-        impl ::leptos_workers::workers::callback_worker::CallbackWorker for #worker_name {
-            fn stream_callback(#request_pat: Self::Request, #callback_pat: Box<dyn Fn(Self::Response)>) {
-                #(#function_body)*
+        impl ::leptos_workers::workers::CallbackWorker for #worker_name {
+            fn stream_callback(#request_pat: Self::Request, #callback_pat: Box<dyn Fn(Self::Response)>) -> ::leptos_workers::LocalBoxFuture<'static, ()> {
+                Box::pin(async move {
+                    #(#function_body)*
+                })
             }
         }
     );
@@ -190,8 +192,8 @@ fn lower_impl_type_worker_channel(
     );
 
     let imp = parse_quote!(
-        impl ::leptos_workers::workers::channel_worker::ChannelWorker for #worker_name {
-            fn channel(#receiver_pat: ::leptos_workers::Receiver<Self::Request>, #sender_pat: ::leptos_workers::Sender<Self::Response>) -> ::leptos_workers::BoxFuture<'static, ()>  {
+        impl ::leptos_workers::workers::ChannelWorker for #worker_name {
+            fn channel(#receiver_pat: ::leptos_workers::Receiver<Self::Request>, #sender_pat: ::leptos_workers::Sender<Self::Response>) -> ::leptos_workers::LocalBoxFuture<'static, ()>  {
                 Box::pin(async move {
                     #(#function_body)*
                 })
@@ -231,8 +233,8 @@ fn lower_impl_type_worker_future(model: &Model, future: &WorkerTypeFuture) -> (I
     );
 
     let imp = parse_quote!(
-        impl ::leptos_workers::workers::future_worker::FutureWorker for #worker_name {
-            fn run(#request_pat: Self::Request) -> ::leptos_workers::BoxFuture<'static, Self::Response> {
+        impl ::leptos_workers::workers::FutureWorker for #worker_name {
+            fn run(#request_pat: Self::Request) -> ::leptos_workers::LocalBoxFuture<'static, Self::Response> {
                 async fn inner(#request_pat: #request_type) -> #response_type {
                     #(#function_body)*
                 }
@@ -278,17 +280,16 @@ fn lower_impl_type_worker_stream(model: &Model, stream: &WorkerTypeStream) -> (I
         }
     );
 
-    let return_type_spanned: TokenStream =
-        quote_spanned!(return_type.span()=> ::leptos_workers::BoxStream<'static, Self::Response>);
+    let return_type_spanned: TokenStream = quote_spanned!(return_type.span()=> ::leptos_workers::LocalBoxStream<'static, Self::Response>);
     let imp = parse_quote!(
-        impl ::leptos_workers::workers::stream_worker::StreamWorker for #worker_name {
+        impl ::leptos_workers::workers::StreamWorker for #worker_name {
             fn stream(#request_pat: Self::Request) -> #return_type_spanned {
                 fn inner(#request_pat: #request_type) -> #return_type {
                     #(#function_body)*
                 }
 
                 use ::leptos_workers::StreamExt;
-                inner(#request_pat).boxed()
+                inner(#request_pat).boxed_local()
             }
         }
     );
@@ -342,7 +343,7 @@ mod tests {
                 TestResponse
             ),
         };
-        let ir = lower(model);
+        let ir = lower(&model);
 
         let expected: ItemStruct = parse_quote!(
             #[derive(Debug, Clone)]
@@ -351,7 +352,7 @@ mod tests {
         assert_eq!(expected, ir.worker_struct);
 
         let expected: ItemImpl = parse_quote!(
-            impl ::leptos_workers::workers::web_worker::WebWorker for TestFutureWorker {
+            impl ::leptos_workers::workers::WebWorker for TestFutureWorker {
                 type Request = TestRequest;
                 type Response = TestResponse;
             }
@@ -359,7 +360,7 @@ mod tests {
         assert_eq!(expected, ir.impl_web_worker);
 
         let expected: ItemImpl = parse_quote!(
-            impl ::leptos_workers::workers::web_worker::WebWorkerPath for TestFutureWorker {
+            impl ::leptos_workers::workers::WebWorkerPath for TestFutureWorker {
                 fn path() -> &'static str {
                     "TestFutureWorker"
                 }
@@ -370,16 +371,15 @@ mod tests {
         let expected: ItemFn = parse_quote!(
             #[::leptos_workers::wasm_bindgen]
             #[allow(non_snake_case)]
-            pub fn WORKERS_FUTURE_TestFutureWorker(
-            ) -> ::leptos_workers::workers::future_worker::FutureWorkerFn {
-                ::leptos_workers::workers::future_worker::FutureWorkerFn::new::<TestFutureWorker>()
+            pub fn WORKERS_FUTURE_TestFutureWorker() -> ::leptos_workers::workers::FutureWorkerFn {
+                ::leptos_workers::workers::FutureWorkerFn::new::<TestFutureWorker>()
             }
         );
         assert_eq!(expected, ir.wasm_bindgen_func);
 
         let expected: ItemImpl = parse_quote!(
-            impl ::leptos_workers::workers::future_worker::FutureWorker for TestFutureWorker {
-                fn run(request: Self::Request) -> ::leptos_workers::BoxFuture<'static, Self::Response> {
+            impl ::leptos_workers::workers::FutureWorker for TestFutureWorker {
+                fn run(request: Self::Request) -> ::leptos_workers::LocalBoxFuture<'static, Self::Response> {
                     async fn inner(request: TestRequest) -> TestResponse {
                         statement1;
                         let statement2 = 0;

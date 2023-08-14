@@ -37,13 +37,13 @@ mod tests {
                 pub struct TestFutureWorker;
             ),
             impl_web_worker: parse_quote!(
-                impl ::leptos_workers::workers::web_worker::WebWorker for TestFutureWorker {
+                impl ::leptos_workers::workers::WebWorker for TestFutureWorker {
                     type Request = TestRequest;
                     type Response = TestResponse;
                 }
             ),
             impl_web_worker_path: parse_quote!(
-                impl ::leptos_workers::workers::web_worker::WebWorkerPath for TestFutureWorker {
+                impl ::leptos_workers::workers::WebWorkerPath for TestFutureWorker {
                     fn path() -> &'static str {
                         stringify!(TestFutureWorker)
                     }
@@ -52,14 +52,13 @@ mod tests {
             wasm_bindgen_func: parse_quote!(
                 #[wasm_bindgen::prelude::wasm_bindgen]
                 #[allow(non_snake_case)]
-                pub fn WORKERS_FUTURE_TestFutureWorker(
-                ) -> ::leptos_workers::workers::future_worker::FutureWorkerFn {
-                    ::leptos_workers::workers::future_worker::FutureWorkerFn::new::<TestFutureWorker>(
-                    )
+                pub fn WORKERS_FUTURE_TestFutureWorker() -> ::leptos_workers::workers::FutureWorkerFn
+                {
+                    ::leptos_workers::workers::FutureWorkerFn::new::<TestFutureWorker>()
                 }
             ),
             impl_type_worker: parse_quote!(
-                impl ::leptos_workers::workers::future_worker::FutureWorker for TestFutureWorker {
+                impl ::leptos_workers::workers::FutureWorker for TestFutureWorker {
                     fn run(request: Self::Request) -> ::leptos_workers::BoxFuture<'static, Self::Response> {
                         Box::pin(async move {
                             statement1;

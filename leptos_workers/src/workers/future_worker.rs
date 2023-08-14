@@ -1,23 +1,31 @@
 use crate::codec;
 use crate::workers::web_worker::WebWorker;
-use futures::future::BoxFuture;
+use futures::future::LocalBoxFuture;
 use std::cell::RefCell;
 use std::sync::Mutex;
 use wasm_bindgen::prelude::*;
 
+/// Takes a single request and responds with a single response.
+/// Technically, the implementation doesn't even have to be asynchronous - but when executed
+/// it will still appear as such to the main thread.
+///
+/// Its main use is for running a single calculation without the need for progress updates.
 pub trait FutureWorker: WebWorker {
-    fn run(request: Self::Request) -> BoxFuture<'static, Self::Response>;
+    /// Executes the worker implementation. Should not be called by user code, use an [Executor](crate::executors) instead.
+    fn run(request: Self::Request) -> LocalBoxFuture<'static, Self::Response>;
 }
 
 #[wasm_bindgen]
 #[derive(Clone)]
+#[doc(hidden)]
 pub struct FutureWorkerFn {
     pub(crate) path: &'static str,
-    pub(crate) function: fn(&Vec<u8>) -> BoxFuture<'static, JsValue>,
+    pub(crate) function: fn(&Vec<u8>) -> LocalBoxFuture<'static, JsValue>,
 }
 
 impl FutureWorkerFn {
     #[must_use]
+    #[doc(hidden)]
     pub fn new<W: FutureWorker>() -> Self {
         Self {
             path: W::path(),

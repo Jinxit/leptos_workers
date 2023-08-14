@@ -1,34 +1,52 @@
-use crate::workers::web_worker::WebWorkerPath;
+use crate::workers::WebWorkerPath;
 use js_sys::Array;
 use thiserror::Error;
 use wasm_bindgen::JsValue;
 use web_sys::{window, Blob, BlobPropertyBag, Url, Worker, WorkerOptions, WorkerType};
 
+/// Describes failures related to worker creation.
 #[derive(Error, Debug)]
+#[non_exhaustive]
 pub enum CreateWorkerError {
+    #[doc(hidden)]
     #[error("No window object found")]
     NoWindow,
+    #[doc(hidden)]
     #[error("Javascript error when getting window.href: {0:?}")]
     WindowHref(JsValue),
+    #[doc(hidden)]
     #[error("Javascript error when building the WASM URL: {0:?}")]
     WasmUrl(JsValue),
+    #[doc(hidden)]
     #[error("Javascript error when creating the blob URL: {0:?}")]
     BlobUrl(JsValue),
+    /// Failure due to issues related to WASM packaging or browser compatibility.
     #[error("Javascript error when creating the worker: {0:?}")]
     NewWorker(JsValue),
 }
 
 pub fn create_worker<W: WebWorkerPath>() -> Result<Worker, CreateWorkerError> {
-    let output_name = option_env!("LEPTOS_OUTPUT_NAME").unwrap_or_default();
-    let site_pkg_dir = option_env!("LEPTOS_SITE_PKG_DIR").unwrap_or_default();
+    let site_pkg_dir = option_env!("LEPTOS_SITE_PKG_DIR")
+        .map(|s| format!("/{s}"))
+        .unwrap_or_default();
+    let output_name = option_env!("LEPTOS_OUTPUT_NAME");
     let worker_js_blob = {
-        let path = format!("/{site_pkg_dir}/{output_name}");
+        let (js_path, wasm_path) = if let Some(output_name) = output_name {
+            let base = format!("{site_pkg_dir}/{output_name}");
+            (format!("{base}.js"), format!("{base}.wasm"))
+        } else {
+            let crate_name = "wasm-bindgen-test";
+            (format!("/{crate_name}"), format!("{crate_name}_bg.wasm"))
+        };
         let base = window()
             .ok_or(CreateWorkerError::NoWindow)?
             .location()
             .href()
             .map_err(CreateWorkerError::WindowHref)?;
-        let url = Url::new_with_base(&path, &base)
+        let js_url = Url::new_with_base(&js_path, &base)
+            .map_err(CreateWorkerError::WasmUrl)?
+            .to_string();
+        let wasm_url = Url::new_with_base(&wasm_path, &base)
             .map_err(CreateWorkerError::WasmUrl)?
             .to_string();
 
@@ -36,7 +54,7 @@ pub fn create_worker<W: WebWorkerPath>() -> Result<Worker, CreateWorkerError> {
             BlobPropertyBag::new().type_("application/javascript"),
             &format!(
                 r#"
-                import init from "{url}.js";
+                import init from "{js_url}";
                 
                 let queue = [];
                 self.onmessage = event => {{
@@ -51,7 +69,7 @@ pub fn create_worker<W: WebWorkerPath>() -> Result<Worker, CreateWorkerError> {
                 }}
                 
                 async function load() {{
-                    let mod = await init("{url}.wasm");
+                    let mod = await init("{wasm_url}");
                     let {{ init_workers, register_future_worker, register_stream_worker, register_callback_worker, register_channel_worker, memory }} = mod;
                     
                     let future_worker_fn = mod["WORKERS_FUTURE_" + self.name];

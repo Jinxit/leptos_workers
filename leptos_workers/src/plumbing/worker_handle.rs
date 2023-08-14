@@ -1,10 +1,10 @@
 use crate::codec;
 use crate::plumbing::{create_worker, CreateWorkerError, WorkerRequest, WorkerRequestType};
-use crate::workers::callback_worker::CallbackWorker;
-use crate::workers::channel_worker::ChannelWorker;
-use crate::workers::future_worker::FutureWorker;
-use crate::workers::stream_worker::StreamWorker;
-use crate::workers::web_worker::WebWorker;
+use crate::workers::CallbackWorker;
+use crate::workers::ChannelWorker;
+use crate::workers::FutureWorker;
+use crate::workers::StreamWorker;
+use crate::workers::WebWorker;
 use alloc::rc::Rc;
 use futures::{FutureExt, Stream, StreamExt};
 use std::cell::RefCell;
@@ -182,6 +182,15 @@ impl<W: ChannelWorker> WorkerHandle<W> {
                     )
                     .expect("post message to ChannelWorker");
             }
+            worker
+                .post_message(
+                    &serde_wasm_bindgen::to_value(&WorkerRequest {
+                        request_type: WorkerRequestType::Channel,
+                        request_data: vec![],
+                    })
+                    .expect("js serialization error"),
+                )
+                .expect("post message to ChannelWorker");
         });
         (request_tx, response_rx)
     }

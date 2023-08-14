@@ -4,6 +4,7 @@ pub(crate) use serde_json::from_slice;
 #[cfg(feature = "json")]
 pub(crate) use serde_json::to_vec;
 
+/*
 #[cfg(feature = "bincode")]
 use serde::de::DeserializeOwned;
 
@@ -22,3 +23,4 @@ where
 {
     bincode::serde::encode_to_vec(value, bincode::config::standard())
 }
+*/

@@ -12,7 +12,7 @@ use syn::{
 
 pub fn analyze(ast: Ast) -> Model {
     let worker_name = ast.worker_name;
-    let worker_type = analyze_worker_type(ast.item_fn.sig.clone());
+    let worker_type = analyze_worker_type(&ast.item_fn.sig);
     let visibility = ast.item_fn.vis;
     let function_name = ast.item_fn.sig.ident;
     let function_body = ast.item_fn.block.stmts;
@@ -26,7 +26,7 @@ pub fn analyze(ast: Ast) -> Model {
     }
 }
 
-const VALID_SIGNATURES: &'static str = indoc! { r#"
+const VALID_SIGNATURES: &str = indoc! { r#"
     try one of the following:
     Callback:
         [pub] [async] fn worker(req: Request, callback: impl Fn(Response))
@@ -38,7 +38,7 @@ const VALID_SIGNATURES: &'static str = indoc! { r#"
         [pub] [async] fn worker(req: Request) -> impl leptos_workers::Stream<Item = Response>
 "# };
 
-fn analyze_worker_type(sig: Signature) -> WorkerType {
+fn analyze_worker_type(sig: &Signature) -> WorkerType {
     // this needs the full Option::None to properly pattern match
     #[allow(unused_qualifications)]
     let Signature {
@@ -52,7 +52,8 @@ fn analyze_worker_type(sig: Signature) -> WorkerType {
         variadic: Option::None,
         output,
         ..
-    } = &sig else {
+    } = &sig
+    else {
         abort!(sig, "couldn't match worker type"; help = VALID_SIGNATURES)
     };
 
@@ -179,37 +180,35 @@ impl WorkerType {
 
     pub fn worker_fn_type(&self) -> Type {
         match self {
-            WorkerType::Callback(_) => parse_quote!(callback_worker::CallbackWorkerFn),
-            WorkerType::Channel(_) => parse_quote!(channel_worker::ChannelWorkerFn),
-            WorkerType::Future(_) => parse_quote!(future_worker::FutureWorkerFn),
-            WorkerType::Stream(_) => parse_quote!(stream_worker::StreamWorkerFn),
+            WorkerType::Callback(_) => parse_quote!(CallbackWorkerFn),
+            WorkerType::Channel(_) => parse_quote!(ChannelWorkerFn),
+            WorkerType::Future(_) => parse_quote!(FutureWorkerFn),
+            WorkerType::Stream(_) => parse_quote!(StreamWorkerFn),
         }
     }
 
     pub fn default_pool_size(&self) -> usize {
         match self {
-            WorkerType::Callback(_) => 2,
             WorkerType::Channel(_) => 1,
-            WorkerType::Future(_) => 2,
-            WorkerType::Stream(_) => 2,
+            WorkerType::Future(_) | WorkerType::Callback(_) | WorkerType::Stream(_) => 2,
         }
     }
 
     pub fn request_type(&self) -> &Type {
         match self {
-            WorkerType::Callback(WorkerTypeCallback { request_type, .. }) => request_type,
-            WorkerType::Channel(WorkerTypeChannel { request_type, .. }) => request_type,
-            WorkerType::Future(WorkerTypeFuture { request_type, .. }) => request_type,
-            WorkerType::Stream(WorkerTypeStream { request_type, .. }) => request_type,
+            WorkerType::Callback(WorkerTypeCallback { request_type, .. })
+            | WorkerType::Channel(WorkerTypeChannel { request_type, .. })
+            | WorkerType::Future(WorkerTypeFuture { request_type, .. })
+            | WorkerType::Stream(WorkerTypeStream { request_type, .. }) => request_type,
         }
     }
 
     pub fn response_type(&self) -> &Type {
         match self {
-            WorkerType::Callback(WorkerTypeCallback { response_type, .. }) => response_type,
-            WorkerType::Channel(WorkerTypeChannel { response_type, .. }) => response_type,
-            WorkerType::Future(WorkerTypeFuture { response_type, .. }) => response_type,
-            WorkerType::Stream(WorkerTypeStream { response_type, .. }) => response_type,
+            WorkerType::Callback(WorkerTypeCallback { response_type, .. })
+            | WorkerType::Channel(WorkerTypeChannel { response_type, .. })
+            | WorkerType::Future(WorkerTypeFuture { response_type, .. })
+            | WorkerType::Stream(WorkerTypeStream { response_type, .. }) => response_type,
         }
     }
 }

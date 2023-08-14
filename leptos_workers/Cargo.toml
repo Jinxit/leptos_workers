@@ -60,5 +60,7 @@ features = [
 ]
 
 [dev-dependencies]
+gloo-timers = { version = "0.3", features = ["futures"]}
 trybuild = "1.0"
-pollster = "0.3.0"
+pollster = "0.3"
+wasm-bindgen-test = "0.3"

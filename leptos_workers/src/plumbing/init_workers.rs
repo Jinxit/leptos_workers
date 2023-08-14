@@ -1,8 +1,8 @@
 use crate::plumbing::{WorkerRequest, WorkerRequestType};
-use crate::workers::callback_worker::CALLBACK_WORKER_FN;
-use crate::workers::channel_worker::CHANNEL_WORKER_FN;
-use crate::workers::future_worker::FUTURE_WORKER_FN;
-use crate::workers::stream_worker::STREAM_WORKER_FN;
+use crate::workers::CALLBACK_WORKER_FN;
+use crate::workers::CHANNEL_WORKER_FN;
+use crate::workers::FUTURE_WORKER_FN;
+use crate::workers::STREAM_WORKER_FN;
 use futures::StreamExt;
 use js_sys::global;
 use js_sys::Function;
@@ -137,6 +137,9 @@ async fn on_message_stream_worker(
             .post_message(&response)
             .expect("failed to post message for StreamWorker");
     }
+    worker_scope
+        .post_message(&JsValue::NULL)
+        .expect("failed to post finishing message for StreamWorker");
 }
 
 async fn on_message_future_worker(

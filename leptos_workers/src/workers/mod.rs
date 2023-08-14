@@ -1,5 +1,13 @@
-pub mod callback_worker;
-pub mod channel_worker;
-pub mod future_worker;
-pub mod stream_worker;
-pub mod web_worker;
+//! This module contains all the available flavours of workers.
+
+mod callback_worker;
+mod channel_worker;
+mod future_worker;
+mod stream_worker;
+mod web_worker;
+
+pub use callback_worker::*;
+pub use channel_worker::*;
+pub use future_worker::*;
+pub use stream_worker::*;
+pub use web_worker::*;

@@ -1,17 +1,26 @@
 use crate::codec;
 use crate::workers::web_worker::WebWorker;
 use alloc::rc::Rc;
+use futures::future::LocalBoxFuture;
 use std::cell::RefCell;
 use std::sync::Mutex;
 use wasm_bindgen::prelude::wasm_bindgen;
 use wasm_bindgen::JsValue;
 
+/// Takes a single requests and can return a stream of responses using the provided callback.
+///
+/// Its main use is integrating with synchronous code based on callbacks, for example to report progress.
 pub trait CallbackWorker: WebWorker {
-    fn stream_callback(request: Self::Request, callback: Box<dyn Fn(Self::Response)>);
+    /// Executes the worker implementation. Should not be called by user code, use an [Executor](crate::executors) instead.
+    fn stream_callback(
+        request: Self::Request,
+        callback: Box<dyn Fn(Self::Response)>,
+    ) -> LocalBoxFuture<'static, ()>;
 }
 
-#[wasm_bindgen(inspectable)]
+#[wasm_bindgen]
 #[derive(Clone)]
+#[doc(hidden)]
 pub struct CallbackWorkerFn {
     pub(crate) path: &'static str,
     pub(crate) function: fn(&Vec<u8>, Box<dyn Fn(JsValue)>),
@@ -19,6 +28,7 @@ pub struct CallbackWorkerFn {
 
 impl CallbackWorkerFn {
     #[must_use]
+    #[doc(hidden)]
     pub fn new<W: CallbackWorker>() -> Self {
         Self {
             path: W::path(),

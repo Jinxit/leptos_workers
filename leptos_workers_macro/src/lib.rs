@@ -1,9 +1,6 @@
 #![warn(clippy::pedantic)]
 #![allow(clippy::unnecessary_wraps)]
 #![allow(clippy::too_many_arguments)]
-// while API is still being solidified
-#![allow(clippy::missing_errors_doc)]
-#![allow(clippy::missing_panics_doc)]
 
 mod v2;
 
@@ -21,9 +18,9 @@ pub fn worker(
     args: proc_macro::TokenStream,
     item: proc_macro::TokenStream,
 ) -> proc_macro::TokenStream {
-    let ast = parse(args.into(), item.into());
+    let ast = parse(&args.into(), item.into());
     let model = analyze(ast);
-    let ir = lower(model);
+    let ir = lower(&model);
     let rust = codegen(ir);
     rust.into()
 }
