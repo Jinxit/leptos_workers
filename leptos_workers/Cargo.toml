@@ -45,6 +45,7 @@ features = [
     "Location",
     "MessageEvent",
     "Navigator",
+    "Performance",
     "ServiceWorker",
     "ServiceWorkerContainer",
     "ServiceWorkerGlobalScope",

@@ -3,10 +3,12 @@ use crate::v2::analyze::{
 };
 use proc_macro2::Ident;
 use proc_macro2::TokenStream;
+use proc_macro_error::abort;
 use quote::{format_ident, quote_spanned};
 use syn::parse::{Parse, ParseStream};
 use syn::spanned::Spanned;
-use syn::{parse_quote, parse_quote_spanned, ItemFn, ItemImpl, ItemStruct, Stmt};
+use syn::Pat;
+use syn::{parse_quote_spanned, ItemFn, ItemImpl, ItemStruct, Stmt};
 
 pub struct Ir {
     pub worker_struct: ItemStruct,
@@ -67,7 +69,7 @@ fn lower_impl_web_worker(model: &Model) -> ItemImpl {
     } = model;
     let request_type = worker_type.request_type();
     let response_type = worker_type.response_type();
-    parse_quote!(
+    parse_quote_spanned!(worker_name.span()=>
         impl ::leptos_workers::workers::WebWorker for #worker_name {
             type Request = #request_type;
             type Response = #response_type;
@@ -78,7 +80,7 @@ fn lower_impl_web_worker(model: &Model) -> ItemImpl {
 fn lower_impl_web_worker_path(model: &Model) -> ItemImpl {
     let Model { worker_name, .. } = model;
     let worker_name_str = worker_name.to_string();
-    parse_quote!(
+    parse_quote_spanned!(worker_name.span()=>
         impl ::leptos_workers::workers::WebWorkerPath for #worker_name {
             fn path() -> &'static str {
                 #worker_name_str
@@ -96,7 +98,7 @@ fn lower_wasm_bindgen_func(model: &Model) -> ItemFn {
     let prefix = worker_type.wasm_function_prefix();
     let func_name = format_ident!("{prefix}_{worker_name}");
     let worker_fn_type = worker_type.worker_fn_type();
-    parse_quote!(
+    parse_quote_spanned!(worker_name.span()=>
         #[::leptos_workers::wasm_bindgen]
         #[allow(non_snake_case)]
         pub fn #func_name() -> ::leptos_workers::workers::#worker_fn_type {
@@ -137,17 +139,19 @@ fn lower_impl_type_worker_callback(
     let create_error_msg = create_error_msg(worker_name);
     let thread_pool = thread_pool(model, &create_error_msg);
 
-    let func = parse_quote!(
+    let request_pat_name = get_ident_from_pat(request_pat);
+
+    let func = parse_quote_spanned!(worker_name.span()=>
         #visibility async fn #function_name(
-            #request_pat: #request_type,
+            #request_pat_name: #request_type,
             #callback_pat: impl Fn(#response_type) + 'static,
         ) {
             #thread_pool
-            POOL.with(move |pool| pool.stream_callback(#request_pat, Box::new(#callback_pat))).expect(#create_error_msg).1.await
+            POOL.with(move |pool| pool.stream_callback(#request_pat_name, Box::new(#callback_pat))).expect(#create_error_msg).1.await
         }
     );
 
-    let imp = parse_quote!(
+    let imp = parse_quote_spanned!(worker_name.span()=>
         impl ::leptos_workers::workers::CallbackWorker for #worker_name {
             fn stream_callback(#request_pat: Self::Request, #callback_pat: Box<dyn Fn(Self::Response)>) -> ::leptos_workers::LocalBoxFuture<'static, ()> {
                 Box::pin(async move {
@@ -183,7 +187,7 @@ fn lower_impl_type_worker_channel(
     let create_error_msg = create_error_msg(worker_name);
     let thread_pool = thread_pool(model, &create_error_msg);
 
-    let func = parse_quote!(
+    let func = parse_quote_spanned!(worker_name.span()=>
         #visibility async fn #function_name() -> (::leptos_workers::Sender<#request_type>, ::leptos_workers::Receiver<#response_type>) {
             #thread_pool
             let (_, tx, rx) = POOL.with(move |pool| pool.channel()).expect(#create_error_msg);
@@ -191,7 +195,7 @@ fn lower_impl_type_worker_channel(
         }
     );
 
-    let imp = parse_quote!(
+    let imp = parse_quote_spanned!(worker_name.span()=>
         impl ::leptos_workers::workers::ChannelWorker for #worker_name {
             fn channel(#receiver_pat: ::leptos_workers::Receiver<Self::Request>, #sender_pat: ::leptos_workers::Sender<Self::Response>) -> ::leptos_workers::LocalBoxFuture<'static, ()>  {
                 Box::pin(async move {
@@ -223,24 +227,26 @@ fn lower_impl_type_worker_future(model: &Model, future: &WorkerTypeFuture) -> (I
     let create_error_msg = create_error_msg(worker_name);
     let thread_pool = thread_pool(model, &create_error_msg);
 
-    let func = parse_quote!(
+    let request_pat_name = get_ident_from_pat(request_pat);
+
+    let func = parse_quote_spanned!(worker_name.span()=>
         #visibility async fn #function_name(
-            #request_pat: #request_type,
+            #request_pat_name: #request_type,
         ) -> #response_type {
             #thread_pool
-            POOL.with(move |pool| pool.run(#request_pat)).expect(#create_error_msg).1.await
+            POOL.with(move |pool| pool.run(#request_pat_name)).expect(#create_error_msg).1.await
         }
     );
 
-    let imp = parse_quote!(
+    let imp = parse_quote_spanned!(worker_name.span()=>
         impl ::leptos_workers::workers::FutureWorker for #worker_name {
-            fn run(#request_pat: Self::Request) -> ::leptos_workers::LocalBoxFuture<'static, Self::Response> {
+            fn run(#request_pat_name: Self::Request) -> ::leptos_workers::LocalBoxFuture<'static, Self::Response> {
                 async fn inner(#request_pat: #request_type) -> #response_type {
                     #(#function_body)*
                 }
 
                 Box::pin(async move {
-                    inner(#request_pat).await
+                    inner(#request_pat_name).await
                 })
             }
         }
@@ -269,27 +275,29 @@ fn lower_impl_type_worker_stream(model: &Model, stream: &WorkerTypeStream) -> (I
     let create_error_msg = create_error_msg(worker_name);
     let thread_pool = thread_pool(model, &create_error_msg);
 
+    let request_pat_name = get_ident_from_pat(request_pat);
+
     let response_type_spanned: TokenStream =
         quote_spanned!(return_type.span()=> impl ::leptos_workers::Stream<Item = #response_type>);
-    let func = parse_quote!(
+    let func = parse_quote_spanned!(worker_name.span()=>
         #visibility fn #function_name(
-            #request_pat: &#request_type,
+            #request_pat_name: &#request_type,
         ) -> #response_type_spanned {
             #thread_pool
-            POOL.with(move |pool| pool.stream(#request_pat)).expect(#create_error_msg).1
+            POOL.with(move |pool| pool.stream(#request_pat_name)).expect(#create_error_msg).1
         }
     );
 
     let return_type_spanned: TokenStream = quote_spanned!(return_type.span()=> ::leptos_workers::LocalBoxStream<'static, Self::Response>);
-    let imp = parse_quote!(
+    let imp = parse_quote_spanned!(worker_name.span()=>
         impl ::leptos_workers::workers::StreamWorker for #worker_name {
-            fn stream(#request_pat: Self::Request) -> #return_type_spanned {
+            fn stream(#request_pat_name: Self::Request) -> #return_type_spanned {
                 fn inner(#request_pat: #request_type) -> #return_type {
                     #(#function_body)*
                 }
 
                 use ::leptos_workers::StreamExt;
-                inner(#request_pat).boxed_local()
+                inner(#request_pat_name).boxed_local()
             }
         }
     );
@@ -304,11 +312,19 @@ fn thread_pool(model: &Model, creation_error_msg: &str) -> Stmt {
         ..
     } = model;
     let pool_size = worker_type.default_pool_size();
-    parse_quote! {
+    parse_quote_spanned!(worker_name.span()=>
         thread_local! {
             static POOL: ::leptos_workers::executors::PoolExecutor<#worker_name> =
                 ::leptos_workers::executors::PoolExecutor::<#worker_name>::new(#pool_size).expect(#creation_error_msg);
         }
+    )
+}
+
+fn get_ident_from_pat(request_pat: &Pat) -> Ident {
+    if let Pat::Ident(ident) = request_pat {
+        ident.ident.clone()
+    } else {
+        abort!(request_pat, "unexpected pattern type")
     }
 }
 
@@ -323,8 +339,6 @@ mod tests {
     use crate::v2::lower::lower;
     use pretty_assertions::assert_eq;
     use syn::parse_quote;
-
-    /* lower */
 
     #[test]
     fn produces_future_worker_ir() {
@@ -381,6 +395,88 @@ mod tests {
             impl ::leptos_workers::workers::FutureWorker for TestFutureWorker {
                 fn run(request: Self::Request) -> ::leptos_workers::LocalBoxFuture<'static, Self::Response> {
                     async fn inner(request: TestRequest) -> TestResponse {
+                        statement1;
+                        let statement2 = 0;
+                        TestResponse
+                    }
+                    Box::pin(async move {
+                        inner(request).await
+                    })
+                }
+            }
+        );
+        assert_eq!(expected, ir.impl_type_worker);
+
+        let creation_error_msg = "worker creation failed for TestFutureWorker";
+        let expected: ItemFn = parse_quote!(
+            pub async fn future_worker(
+                request: TestRequest,
+            ) -> TestResponse {
+                thread_local! {
+                    static POOL: ::leptos_workers::executors::PoolExecutor<TestFutureWorker> =
+                        ::leptos_workers::executors::PoolExecutor::<TestFutureWorker>::new(2usize).expect(#creation_error_msg);
+                }
+                POOL.with(move |pool| pool.run(request)).expect(#creation_error_msg).1.await
+            }
+        );
+        assert_eq!(expected, ir.default_pool_func);
+    }
+
+    #[test]
+    fn produces_future_worker_ir_with_mut_arg() {
+        let model = Model {
+            worker_name: parse_quote!(TestFutureWorker),
+            worker_type: WorkerType::Future(WorkerTypeFuture {
+                request_pat: parse_quote!(mut request),
+                request_type: parse_quote!(TestRequest),
+                response_type: parse_quote!(TestResponse),
+            }),
+            visibility: parse_quote!(pub),
+            function_name: parse_quote!(future_worker),
+            function_body: parse_quote!(
+                statement1;
+                let statement2 = 0;
+                TestResponse
+            ),
+        };
+        let ir = lower(&model);
+
+        let expected: ItemStruct = parse_quote!(
+            #[derive(Debug, Clone)]
+            pub struct TestFutureWorker;
+        );
+        assert_eq!(expected, ir.worker_struct);
+
+        let expected: ItemImpl = parse_quote!(
+            impl ::leptos_workers::workers::WebWorker for TestFutureWorker {
+                type Request = TestRequest;
+                type Response = TestResponse;
+            }
+        );
+        assert_eq!(expected, ir.impl_web_worker);
+
+        let expected: ItemImpl = parse_quote!(
+            impl ::leptos_workers::workers::WebWorkerPath for TestFutureWorker {
+                fn path() -> &'static str {
+                    "TestFutureWorker"
+                }
+            }
+        );
+        assert_eq!(expected, ir.impl_web_worker_path);
+
+        let expected: ItemFn = parse_quote!(
+            #[::leptos_workers::wasm_bindgen]
+            #[allow(non_snake_case)]
+            pub fn WORKERS_FUTURE_TestFutureWorker() -> ::leptos_workers::workers::FutureWorkerFn {
+                ::leptos_workers::workers::FutureWorkerFn::new::<TestFutureWorker>()
+            }
+        );
+        assert_eq!(expected, ir.wasm_bindgen_func);
+
+        let expected: ItemImpl = parse_quote!(
+            impl ::leptos_workers::workers::FutureWorker for TestFutureWorker {
+                fn run(request: Self::Request) -> ::leptos_workers::LocalBoxFuture<'static, Self::Response> {
+                    async fn inner(mut request: TestRequest) -> TestResponse {
                         statement1;
                         let statement2 = 0;
                         TestResponse
