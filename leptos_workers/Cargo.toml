@@ -10,6 +10,7 @@ readme = "../README.md"
 default = ["json"]
 json = ["dep:serde_json"]
 bincode = ["dep:bincode"]
+ssr = ["leptos_workers_macro/ssr"]
 
 [dependencies]
 leptos_workers_macro = { path = "../leptos_workers_macro", version = "0.1.0" }

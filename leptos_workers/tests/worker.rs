@@ -1,11 +1,8 @@
+#![allow(clippy::self_assignment)]
+
 use gloo_timers::future::TimeoutFuture;
 use leptos_workers_macro::worker;
 use serde::{Deserialize, Serialize};
-use web_sys::window;
-use std::{
-    borrow::BorrowMut,
-    sync::{Arc, Mutex}, mem::drop,
-};
 use wasm_bindgen_test::*;
 
 wasm_bindgen_test_configure!(run_in_browser);
@@ -101,17 +98,22 @@ pub async fn stream_worker_with_mut_arg(
     })
 }
 
+#[cfg(not(feature = "ssr"))]
 #[wasm_bindgen_test]
 async fn callback_worker_test() {
     let callback = callback_worker(TestRequest(5), move |resp: TestResponse| {
         assert_eq!(resp.0, 10);
     });
-    callback.await;
+    callback.await.unwrap();
 }
 
+#[cfg(not(feature = "ssr"))]
 #[wasm_bindgen_test]
 async fn channel_worker_test() {
-    let (tx, rx) = channel_worker().await;
+    use flume::TryRecvError;
+    use std::mem::drop;
+
+    let (tx, rx) = channel_worker().unwrap();
     tx.send_async(TestRequest(5)).await.unwrap();
     tx.send_async(TestRequest(7)).await.unwrap();
     let first = rx.recv_async().await.unwrap();
@@ -124,22 +126,33 @@ async fn channel_worker_test() {
     assert_eq!(res, Err(TryRecvError::Disconnected));
 }
 
+#[cfg(not(feature = "ssr"))]
 #[wasm_bindgen_test]
 async fn future_worker_test() {
     let future = future_worker(TestRequest(5));
     let future_result = future.await;
-    assert_eq!(future_result.0, 10);
+    assert_eq!(future_result.unwrap().0, 10);
 }
 
+#[cfg(not(feature = "ssr"))]
 #[wasm_bindgen_test]
 async fn stream_worker_test() {
+    use futures::StreamExt;
+
     let stream = stream_worker(&TestRequest(5));
-    let stream_result: Vec<_> = stream.map(|r| r.0).collect().await;
+    let stream_result: Vec<_> = stream.unwrap().map(|r| r.0).collect().await;
     assert_eq!(stream_result, vec![10, 15]);
 }
 
+#[cfg(not(feature = "ssr"))]
 #[wasm_bindgen_test]
 async fn heavy_loop_is_interactive() {
+    use std::{
+        borrow::BorrowMut,
+        sync::{Arc, Mutex},
+    };
+    use web_sys::window;
+
     let done = Arc::new(Mutex::new(false));
 
     let test = {
@@ -149,7 +162,7 @@ async fn heavy_loop_is_interactive() {
             async move {
                 let future = heavy_loop(TestRequest(5));
                 let future_result = future.await;
-                assert_eq!(future_result.0, 10);
+                assert_eq!(future_result.unwrap().0, 10);
                 **done.lock().unwrap().borrow_mut() = true;
             }
         }
@@ -185,4 +198,10 @@ async fn heavy_loop_is_interactive() {
     };
 
     futures::join!(timer, test(), test(), test());
+}
+
+#[test]
+#[should_panic]
+fn should_panic_on_ssr() {
+    pollster::block_on(async { future_worker(TestRequest(5)).await.unwrap() });
 }

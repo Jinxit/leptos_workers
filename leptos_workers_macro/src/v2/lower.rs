@@ -6,6 +6,7 @@ use proc_macro2::TokenStream;
 use proc_macro_error::abort;
 use quote::{format_ident, quote_spanned};
 use syn::parse::{Parse, ParseStream};
+use syn::parse_quote;
 use syn::spanned::Spanned;
 use syn::Pat;
 use syn::{parse_quote_spanned, ItemFn, ItemImpl, ItemStruct, Stmt};
@@ -136,18 +137,25 @@ fn lower_impl_type_worker_callback(
         ..
     } = callback;
 
-    let create_error_msg = create_error_msg(worker_name);
-    let thread_pool = thread_pool(model, &create_error_msg);
-
     let request_pat_name = get_ident_from_pat(request_pat);
+    let callback_pat_name = get_ident_from_pat(callback_pat);
+
+    let thread_pool = thread_pool(model, &[request_pat_name.clone(), callback_pat_name]);
 
     let func = parse_quote_spanned!(worker_name.span()=>
         #visibility async fn #function_name(
             #request_pat_name: #request_type,
             #callback_pat: impl Fn(#response_type) + 'static,
-        ) {
-            #thread_pool
-            POOL.with(move |pool| pool.stream_callback(#request_pat_name, Box::new(#callback_pat))).expect(#create_error_msg).1.await
+        ) -> Result<(), ::leptos_workers::CreateWorkerError> {
+            #(#thread_pool)*
+            Ok(POOL
+                .with(move |pool| {
+                    pool.as_ref()
+                        .map_err(Clone::clone)
+                        .and_then(|pool| pool.stream_callback(#request_pat_name, Box::new(#callback_pat)))
+                })?
+                .1
+                .await)
         }
     );
 
@@ -184,14 +192,18 @@ fn lower_impl_type_worker_channel(
         ..
     } = channel;
 
-    let create_error_msg = create_error_msg(worker_name);
-    let thread_pool = thread_pool(model, &create_error_msg);
+    let thread_pool = thread_pool(model, &[]);
 
     let func = parse_quote_spanned!(worker_name.span()=>
-        #visibility async fn #function_name() -> (::leptos_workers::Sender<#request_type>, ::leptos_workers::Receiver<#response_type>) {
-            #thread_pool
-            let (_, tx, rx) = POOL.with(move |pool| pool.channel()).expect(#create_error_msg);
-            (tx, rx)
+        #visibility fn #function_name() -> Result<(::leptos_workers::Sender<#request_type>, ::leptos_workers::Receiver<#response_type>), ::leptos_workers::CreateWorkerError> {
+            #(#thread_pool)*
+            let (_, tx, rx) = POOL
+                .with(move |pool| {
+                    pool.as_ref()
+                        .map_err(Clone::clone)
+                        .and_then(|pool| pool.channel())
+                })?;
+            Ok((tx, rx))
         }
     );
 
@@ -224,17 +236,23 @@ fn lower_impl_type_worker_future(model: &Model, future: &WorkerTypeFuture) -> (I
         ..
     } = future;
 
-    let create_error_msg = create_error_msg(worker_name);
-    let thread_pool = thread_pool(model, &create_error_msg);
-
     let request_pat_name = get_ident_from_pat(request_pat);
+
+    let thread_pool = thread_pool(model, &[request_pat_name.clone()]);
 
     let func = parse_quote_spanned!(worker_name.span()=>
         #visibility async fn #function_name(
             #request_pat_name: #request_type,
-        ) -> #response_type {
-            #thread_pool
-            POOL.with(move |pool| pool.run(#request_pat_name)).expect(#create_error_msg).1.await
+        ) -> Result<#response_type, ::leptos_workers::CreateWorkerError> {
+            #(#thread_pool)*
+            Ok(POOL
+                .with(move |pool| {
+                    pool.as_ref()
+                        .map_err(Clone::clone)
+                        .and_then(|pool| pool.run(#request_pat_name))
+                })?
+                .1
+                .await)
         }
     );
 
@@ -272,19 +290,24 @@ fn lower_impl_type_worker_stream(model: &Model, stream: &WorkerTypeStream) -> (I
         ..
     } = stream;
 
-    let create_error_msg = create_error_msg(worker_name);
-    let thread_pool = thread_pool(model, &create_error_msg);
-
     let request_pat_name = get_ident_from_pat(request_pat);
+
+    let thread_pool = thread_pool(model, &[request_pat_name.clone()]);
 
     let response_type_spanned: TokenStream =
         quote_spanned!(return_type.span()=> impl ::leptos_workers::Stream<Item = #response_type>);
     let func = parse_quote_spanned!(worker_name.span()=>
         #visibility fn #function_name(
             #request_pat_name: &#request_type,
-        ) -> #response_type_spanned {
-            #thread_pool
-            POOL.with(move |pool| pool.stream(#request_pat_name)).expect(#create_error_msg).1
+        ) -> Result<#response_type_spanned, ::leptos_workers::CreateWorkerError> {
+            #(#thread_pool)*
+            Ok(POOL
+                .with(move |pool| {
+                    pool.as_ref()
+                        .map_err(Clone::clone)
+                        .and_then(|pool| pool.stream(#request_pat_name))
+                })?
+                .1)
         }
     );
 
@@ -305,19 +328,36 @@ fn lower_impl_type_worker_stream(model: &Model, stream: &WorkerTypeStream) -> (I
     (func, imp)
 }
 
-fn thread_pool(model: &Model, creation_error_msg: &str) -> Stmt {
+fn thread_pool(model: &Model, inputs: &[Ident]) -> Vec<Stmt> {
     let Model {
         worker_name,
         worker_type,
         ..
     } = model;
     let pool_size = worker_type.default_pool_size();
+
+    let ssr_check = ssr_check(inputs);
+
     parse_quote_spanned!(worker_name.span()=>
+        #(#ssr_check)*
         thread_local! {
-            static POOL: ::leptos_workers::executors::PoolExecutor<#worker_name> =
-                ::leptos_workers::executors::PoolExecutor::<#worker_name>::new(#pool_size).expect(#creation_error_msg);
+            static POOL: Result<::leptos_workers::executors::PoolExecutor<#worker_name>, ::leptos_workers::CreateWorkerError> =
+                ::leptos_workers::executors::PoolExecutor::<#worker_name>::new(#pool_size);
         }
     )
+}
+
+fn ssr_check(inputs: &[Ident]) -> Vec<Stmt> {
+    if cfg!(feature = "ssr") {
+        parse_quote!(
+            #(let _ = #inputs;)*
+            if true {
+                panic!("Workers can't be constructed on the server. Try using `create_effect`, `create_local_resource`, `create_action` or `spawn_local`.")
+            }
+        )
+    } else {
+        parse_quote!()
+    }
 }
 
 fn get_ident_from_pat(request_pat: &Pat) -> Ident {
@@ -326,10 +366,6 @@ fn get_ident_from_pat(request_pat: &Pat) -> Ident {
     } else {
         abort!(request_pat, "unexpected pattern type")
     }
-}
-
-fn create_error_msg(worker_name: &Ident) -> String {
-    format!("worker creation failed for {worker_name}")
 }
 
 #[allow(unused_imports)]
@@ -341,6 +377,7 @@ mod tests {
     use syn::parse_quote;
 
     #[test]
+    #[cfg(not(feature = "ssr"))]
     fn produces_future_worker_ir() {
         let model = Model {
             worker_name: parse_quote!(TestFutureWorker),
@@ -423,6 +460,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(not(feature = "ssr"))]
     fn produces_future_worker_ir_with_mut_arg() {
         let model = Model {
             worker_name: parse_quote!(TestFutureWorker),
@@ -494,6 +532,94 @@ mod tests {
             pub async fn future_worker(
                 request: TestRequest,
             ) -> TestResponse {
+                thread_local! {
+                    static POOL: ::leptos_workers::executors::PoolExecutor<TestFutureWorker> =
+                        ::leptos_workers::executors::PoolExecutor::<TestFutureWorker>::new(2usize).expect(#creation_error_msg);
+                }
+                POOL.with(move |pool| pool.run(request)).expect(#creation_error_msg).1.await
+            }
+        );
+        assert_eq!(expected, ir.default_pool_func);
+    }
+
+    #[test]
+    #[cfg(feature = "ssr")]
+    fn produces_future_worker_ir_ssr() {
+        let model = Model {
+            worker_name: parse_quote!(TestFutureWorker),
+            worker_type: WorkerType::Future(WorkerTypeFuture {
+                request_pat: parse_quote!(request),
+                request_type: parse_quote!(TestRequest),
+                response_type: parse_quote!(TestResponse),
+            }),
+            visibility: parse_quote!(pub),
+            function_name: parse_quote!(future_worker),
+            function_body: parse_quote!(
+                statement1;
+                let statement2 = 0;
+                TestResponse
+            ),
+        };
+        let ir = lower(&model);
+
+        let expected: ItemStruct = parse_quote!(
+            #[derive(Debug, Clone)]
+            pub struct TestFutureWorker;
+        );
+        assert_eq!(expected, ir.worker_struct);
+
+        let expected: ItemImpl = parse_quote!(
+            impl ::leptos_workers::workers::WebWorker for TestFutureWorker {
+                type Request = TestRequest;
+                type Response = TestResponse;
+            }
+        );
+        assert_eq!(expected, ir.impl_web_worker);
+
+        let expected: ItemImpl = parse_quote!(
+            impl ::leptos_workers::workers::WebWorkerPath for TestFutureWorker {
+                fn path() -> &'static str {
+                    "TestFutureWorker"
+                }
+            }
+        );
+        assert_eq!(expected, ir.impl_web_worker_path);
+
+        let expected: ItemFn = parse_quote!(
+            #[::leptos_workers::wasm_bindgen]
+            #[allow(non_snake_case)]
+            pub fn WORKERS_FUTURE_TestFutureWorker() -> ::leptos_workers::workers::FutureWorkerFn {
+                ::leptos_workers::workers::FutureWorkerFn::new::<TestFutureWorker>()
+            }
+        );
+        assert_eq!(expected, ir.wasm_bindgen_func);
+
+        let expected: ItemImpl = parse_quote!(
+            impl ::leptos_workers::workers::FutureWorker for TestFutureWorker {
+                fn run(request: Self::Request) -> ::leptos_workers::LocalBoxFuture<'static, Self::Response> {
+                    async fn inner(request: TestRequest) -> TestResponse {
+                        statement1;
+                        let statement2 = 0;
+                        TestResponse
+                    }
+                    Box::pin(async move {
+                        inner(request).await
+                    })
+                }
+            }
+        );
+        assert_eq!(expected, ir.impl_type_worker);
+
+        let creation_error_msg = "worker creation failed for TestFutureWorker";
+        let expected: ItemFn = parse_quote!(
+            pub async fn future_worker(
+                request: TestRequest,
+            ) -> TestResponse {
+                let _ = request;
+                #[allow(clippy::eq_op)]
+                if true {
+                    panic!("Workers can't be constructed on the server. Try using `create_effect`, `create_local_resource`, `create_action` or `spawn_local`.");
+                }
                 thread_local! {
                     static POOL: ::leptos_workers::executors::PoolExecutor<TestFutureWorker> =
                         ::leptos_workers::executors::PoolExecutor::<TestFutureWorker>::new(2usize).expect(#creation_error_msg);

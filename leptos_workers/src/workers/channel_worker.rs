@@ -62,17 +62,17 @@ impl ChannelWorkerFn {
             path: W::path(),
             function: Arc::new(move |request, new_callback| {
                 if request.is_empty() {
-                    let mut request_tx = request_tx.lock().unwrap();
+                    let mut request_tx = request_tx.lock().expect("mutex should not be poisoned");
                     *request_tx = None;
-                } else {
-                    if let Some(request_tx) = &*request_tx.lock().unwrap() {
-                        let request =
-                            codec::from_slice(&request[..]).expect("byte deserialization error");
-                        let mut callback = callback.lock().expect("mutex should not be poisoned");
-                        *callback = Some(new_callback);
-                        // this will error when the receiver is dropped
-                        let _ = request_tx.send(request);
-                    }
+                } else if let Some(request_tx) =
+                    &*request_tx.lock().expect("mutex should not be poisoned")
+                {
+                    let request =
+                        codec::from_slice(&request[..]).expect("byte deserialization error");
+                    let mut callback = callback.lock().expect("mutex should not be poisoned");
+                    *callback = Some(new_callback);
+                    // this will error when the receiver is dropped
+                    let _ = request_tx.send(request);
                 }
             }),
         }

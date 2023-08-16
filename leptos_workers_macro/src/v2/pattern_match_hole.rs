@@ -7,9 +7,7 @@ pub fn pattern_match_holes(
     patterns: &[TokenStream],
     value: &(impl ToTokens + Clone),
 ) -> Option<TokenStream> {
-    patterns
-        .iter()
-        .find_map(|p| pattern_match_hole(p, value))
+    patterns.iter().find_map(|p| pattern_match_hole(p, value))
 }
 
 pub fn pattern_match_hole(pattern: &TokenStream, value: &impl ToTokens) -> Option<TokenStream> {

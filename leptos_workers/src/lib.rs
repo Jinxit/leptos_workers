@@ -50,73 +50,167 @@ pub mod workers;
 /// ## Callback
 /// See also: [`CallbackWorker`](crate::workers::CallbackWorker).
 ///
-/// ```ignore
-///     [pub] [async] fn worker(
-///         req: Request,
-///         callback: impl Fn(Response)
-///     )
+/// Define your worker function as such:
+///
+/// ```
+/// # use serde::{Serialize, Deserialize};
+/// # #[derive(Clone, Serialize, Deserialize)]
+/// # pub struct MyRequest;
+/// # #[derive(Clone, Serialize, Deserialize)]
+/// # pub struct MyResponse;
+/// # use leptos_workers::worker;
+/// #[worker(MyCallbackWorker)]
+/// /*pub?*/ /*async?*/ fn worker(
+///     req: MyRequest,
+///     callback: impl Fn(MyResponse)
+/// )
+/// # { todo!() }
+/// ```
+///
+/// Which will be transformed to:
+///
+/// ```
+/// # pub struct MyRequest;
+/// # pub struct MyResponse;
+/// /*pub?*/ async fn worker(
+///     req: MyRequest,
+///     callback: impl Fn(MyResponse) + 'static
+/// ) -> Result<(), leptos_workers::CreateWorkerError>
+/// # { todo!() }
 /// ```
 ///
 /// ## Channel
 /// See also: [`ChannelWorker`](crate::workers::ChannelWorker).
 ///
-/// ```ignore
-///     [pub] [async] fn worker(
-///         rx: leptos_workers::Receiver<Request>,
-///         tx: leptos_workers::Sender<Response>
-///     )
+/// Define your worker function as such:
+///
+/// ```
+/// # use serde::{Serialize, Deserialize};
+/// # #[derive(Clone, Serialize, Deserialize)]
+/// # pub struct MyRequest;
+/// # #[derive(Clone, Serialize, Deserialize)]
+/// # pub struct MyResponse;
+/// # use leptos_workers::worker;
+/// #[worker(MyChannelWorker)]
+/// /*pub?*/ /*async?*/ fn worker(
+///     rx: leptos_workers::Receiver<MyRequest>,
+///     tx: leptos_workers::Sender<MyResponse>
+/// )
+/// # { todo!() }
 /// ```
 ///
-/// The signature for using channel workers will be inverted to:
+/// Which will be transformed to:
 ///
-/// ```ignore
-///     [pub] async fn worker() -> (
-///         leptos_workers::Sender<Request>,
-///         leptos_workers::Receiver<Response>
-///     )
+/// ```
+/// # pub struct MyRequest;
+/// # pub struct MyResponse;
+/// /*pub?*/ fn worker() -> Result<
+///     (
+///         leptos_workers::Sender<MyRequest>,
+///         leptos_workers::Receiver<MyResponse>,
+///     ),
+///     leptos_workers::CreateWorkerError,
+/// >
+/// # { todo!() }
 /// ```
 ///
 /// ## Future
 /// See also: [`FutureWorker`](crate::workers::FutureWorker).
 ///
-/// ```ignore
-///     [pub] [async] fn worker(
-///         req: Request
-///     ) -> Response
+/// Define your worker function as such:
+///
+/// ```
+/// # use serde::{Serialize, Deserialize};
+/// # #[derive(Clone, Serialize, Deserialize)]
+/// # pub struct MyRequest;
+/// # #[derive(Clone, Serialize, Deserialize)]
+/// # pub struct MyResponse;
+/// # use leptos_workers::worker;
+/// #[worker(MyFutureWorker)]
+/// /*pub?*/ /*async?*/ fn worker(
+///     req: MyRequest
+/// ) -> MyResponse
+/// # { todo!() }
+/// ```
+///
+/// Which will be transformed to:
+///
+/// ```
+/// # pub struct MyRequest;
+/// # pub struct MyResponse;
+/// /*pub?*/ async fn worker(
+///     req: MyRequest,
+/// ) -> Result<MyResponse, leptos_workers::CreateWorkerError>
+/// # { todo!() }
 /// ```
 ///
 /// ## Stream
 /// See also: [`StreamWorker`](crate::workers::StreamWorker).
 ///
-/// ```ignore
-///     [pub] [async] fn worker(
-///         req: Request
-///     ) -> impl leptos_workers::Stream<Item = Response>
+/// Define your worker function as such:
+///
+/// ```
+/// # use serde::{Serialize, Deserialize};
+/// # #[derive(Clone, Serialize, Deserialize)]
+/// # pub struct MyRequest;
+/// # #[derive(Clone, Serialize, Deserialize)]
+/// # pub struct MyResponse;
+/// # use leptos_workers::worker;
+/// #[worker(MyStreamWorker)]
+/// /*pub?*/ /*async?*/ fn worker(
+///     req: MyRequest
+/// ) -> impl leptos_workers::Stream<Item = MyResponse>
+/// # { futures::stream::once(async { MyResponse }) }
+/// ```
+///
+/// Which will be transformed to:
+///
+/// ```
+/// # pub struct MyRequest;
+/// # pub struct MyResponse;
+/// /*pub?*/ fn worker(
+///     req: &MyRequest,
+/// ) -> Result<
+///     impl leptos_workers::Stream<Item = MyResponse>,
+///     leptos_workers::CreateWorkerError
+/// >
+/// # { Ok(futures::stream::once(async { MyResponse })) }
 /// ```
 ///
 /// # Usage
 ///
-/// After applying the macro to one of these they can be called directly. This will use a default thread pool.
+/// After applying the macro to one of the above examples they can be called directly. This will use a default thread pool.
+/// Don't forget to handle the error case if you need compatibility with older browsers.
 ///
-/// ```ignore
-///     #[derive(Serialize, Deserialize)]
-///     pub struct MyRequest;
-///     #[derive(Serialize, Deserialize)]
-///     pub struct MyResponse;
-///     
-///     #[worker(TestFutureWorker)]
-///     pub async fn future_worker(_req: MyRequest) -> MyResponse {
-///         MyResponse
-///     }
+/// ```
+/// # use serde::{Serialize, Deserialize};
+/// # use leptos_workers::worker;
+/// # fn create_local_resource<T>(f: fn(), g: fn(Option<T>) -> T) {}
+/// #[derive(Clone, Serialize, Deserialize)]
+/// pub struct MyRequest;
+/// #[derive(Clone, Serialize, Deserialize)]
+/// pub struct MyResponse;
 ///
-///     // in your component
-///     let response = leptos::create_local_resource(|| (), move |_| {
-///         future_worker(MyRequest)
-///     });
+/// #[worker(MyFutureWorker)]
+/// pub async fn future_worker(_req: MyRequest) -> MyResponse {
+///     MyResponse
+/// }
+/// # fn main() {
+/// // in your component
+/// let response = create_local_resource(|| (), move |_| {
+///     future_worker(MyRequest)
+/// });
+/// # }
 /// ```
 ///
-/// **It is important to use `create_local_resource`** in order to execute the worker locally, as the worker
-/// does not exist on the server.
+/// **If using SSR it is important to ensure the worker only executes on the client**,
+/// as the worker does not exist on the server. A few examples of wrapping functions include:
+/// - `create_local_resource`
+/// - `create_effect`
+/// - `create_action`
+/// - `spawn_local`
+///
+/// If using pure CSR, this is not a problem.
 pub use leptos_workers_macro::worker;
 
 pub use plumbing::CreateWorkerError;

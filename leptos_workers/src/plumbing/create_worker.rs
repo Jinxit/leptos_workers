@@ -5,7 +5,7 @@ use wasm_bindgen::JsValue;
 use web_sys::{window, Blob, BlobPropertyBag, Url, Worker, WorkerOptions, WorkerType};
 
 /// Describes failures related to worker creation.
-#[derive(Error, Debug)]
+#[derive(Error, Debug, Clone)]
 #[non_exhaustive]
 pub enum CreateWorkerError {
     #[doc(hidden)]

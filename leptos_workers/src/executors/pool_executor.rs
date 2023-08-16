@@ -11,7 +11,7 @@ use std::future::Future;
 use wasm_bindgen_futures::spawn_local;
 
 /// This executor will run requests on the first available worker in a pool.
-/// 
+///
 /// The pool is created with an initial size, but is allowed to expand infinitely if necessary in order to not block.
 #[derive(Debug, Clone)]
 pub struct PoolExecutor<W: WebWorker> {
@@ -67,7 +67,7 @@ impl<W: WebWorker> PoolExecutor<W> {
 /// This handle is returned when spawning a worker using a [`PoolExecutor`].
 /// It can be used to abort a running worker immediately, leading to creation of
 /// a new worker in the pool to replace it.
-/// 
+///
 /// **Note**: If this is used in order to abort a worker and then immediately
 /// start a new computation, it is better to start the new computation *before*
 /// aborting the current one. Otherwise, the new computation will need to wait for
