@@ -468,7 +468,7 @@ checksum = "e2abad23fbc42b3700f2f279844dc832adb2b2eb069b2df918f455c4e18cc646"
 
 [[package]]
 name = "leptos_workers"
-version = "0.1.0"
+version = "0.2.1"
 dependencies = [
  "bincode 2.0.0-rc.3",
  "console_error_panic_hook",
@@ -496,7 +496,7 @@ dependencies = [
 
 [[package]]
 name = "leptos_workers_macro"
-version = "0.1.0"
+version = "0.2.1"
 dependencies = [
  "convert_case",
  "indoc",
