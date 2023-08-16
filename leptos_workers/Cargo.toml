@@ -13,7 +13,7 @@ bincode = ["dep:bincode"]
 ssr = ["leptos_workers_macro/ssr"]
 
 [dependencies]
-leptos_workers_macro = { path = "../leptos_workers_macro", version = "0.1.0" }
+leptos_workers_macro = { path = "../leptos_workers_macro", version = "0.2.0" }
 
 bincode = { version = "2.0.0-rc.3", features = ["serde"], optional = true }
 console_error_panic_hook = "0.1"
