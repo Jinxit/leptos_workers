@@ -124,6 +124,7 @@ fn lower_impl_type_worker_callback(
     let Model {
         worker_name,
         visibility,
+        function_attrs,
         function_name,
         function_body,
         ..
@@ -143,6 +144,7 @@ fn lower_impl_type_worker_callback(
     let thread_pool = thread_pool(model, &[request_pat_name.clone(), callback_pat_name]);
 
     let func = parse_quote_spanned!(worker_name.span()=>
+        #(#function_attrs)*
         #visibility async fn #function_name(
             #request_pat_name: #request_type,
             #callback_pat: impl Fn(#response_type) + 'static,
@@ -179,6 +181,7 @@ fn lower_impl_type_worker_channel(
     let Model {
         worker_name,
         visibility,
+        function_attrs,
         function_name,
         function_body,
         ..
@@ -195,6 +198,7 @@ fn lower_impl_type_worker_channel(
     let thread_pool = thread_pool(model, &[]);
 
     let func = parse_quote_spanned!(worker_name.span()=>
+        #(#function_attrs)*
         #visibility fn #function_name() -> Result<(::leptos_workers::Sender<#request_type>, ::leptos_workers::Receiver<#response_type>), ::leptos_workers::CreateWorkerError> {
             #(#thread_pool)*
             let (_, tx, rx) = POOL
@@ -224,6 +228,7 @@ fn lower_impl_type_worker_future(model: &Model, future: &WorkerTypeFuture) -> (I
     let Model {
         worker_name,
         visibility,
+        function_attrs,
         function_name,
         function_body,
         ..
@@ -241,6 +246,7 @@ fn lower_impl_type_worker_future(model: &Model, future: &WorkerTypeFuture) -> (I
     let thread_pool = thread_pool(model, &[request_pat_name.clone()]);
 
     let func = parse_quote_spanned!(worker_name.span()=>
+        #(#function_attrs)*
         #visibility async fn #function_name(
             #request_pat_name: #request_type,
         ) -> Result<#response_type, ::leptos_workers::CreateWorkerError> {
@@ -277,6 +283,7 @@ fn lower_impl_type_worker_stream(model: &Model, stream: &WorkerTypeStream) -> (I
     let Model {
         worker_name,
         visibility,
+        function_attrs,
         function_name,
         function_body,
         ..
@@ -297,6 +304,7 @@ fn lower_impl_type_worker_stream(model: &Model, stream: &WorkerTypeStream) -> (I
     let response_type_spanned: TokenStream =
         quote_spanned!(return_type.span()=> impl ::leptos_workers::Stream<Item = #response_type>);
     let func = parse_quote_spanned!(worker_name.span()=>
+        #(#function_attrs)*
         #visibility fn #function_name(
             #request_pat_name: &#request_type,
         ) -> Result<#response_type_spanned, ::leptos_workers::CreateWorkerError> {
@@ -374,7 +382,18 @@ mod tests {
     use crate::v2::analyze::WorkerType;
     use crate::v2::lower::lower;
     use pretty_assertions::assert_eq;
+    use quote::ToTokens;
     use syn::parse_quote;
+
+    #[allow(dead_code)]
+    fn assert_eq_quoted<L: ToTokens + PartialEq<R>, R: ToTokens>(lhs: &L, rhs: &R) {
+        if lhs != rhs {
+            assert_eq!(
+                quote::quote!(#lhs).to_string(),
+                quote::quote!(#rhs).to_string()
+            );
+        }
+    }
 
     #[test]
     #[cfg(not(feature = "ssr"))]
@@ -387,6 +406,9 @@ mod tests {
                 response_type: parse_quote!(TestResponse),
             }),
             visibility: parse_quote!(pub),
+            function_attrs: vec![parse_quote!(
+                /// function-level doc
+            )],
             function_name: parse_quote!(future_worker),
             function_body: parse_quote!(
                 statement1;
@@ -400,7 +422,7 @@ mod tests {
             #[derive(Debug, Clone)]
             pub struct TestFutureWorker;
         );
-        assert_eq!(expected, ir.worker_struct);
+        assert_eq_quoted(&expected, &ir.worker_struct);
 
         let expected: ItemImpl = parse_quote!(
             impl ::leptos_workers::workers::WebWorker for TestFutureWorker {
@@ -408,7 +430,7 @@ mod tests {
                 type Response = TestResponse;
             }
         );
-        assert_eq!(expected, ir.impl_web_worker);
+        assert_eq_quoted(&expected, &ir.impl_web_worker);
 
         let expected: ItemImpl = parse_quote!(
             impl ::leptos_workers::workers::WebWorkerPath for TestFutureWorker {
@@ -417,7 +439,7 @@ mod tests {
                 }
             }
         );
-        assert_eq!(expected, ir.impl_web_worker_path);
+        assert_eq_quoted(&expected, &ir.impl_web_worker_path);
 
         let expected: ItemFn = parse_quote!(
             #[::leptos_workers::wasm_bindgen]
@@ -426,7 +448,7 @@ mod tests {
                 ::leptos_workers::workers::FutureWorkerFn::new::<TestFutureWorker>()
             }
         );
-        assert_eq!(expected, ir.wasm_bindgen_func);
+        assert_eq_quoted(&expected, &ir.wasm_bindgen_func);
 
         let expected: ItemImpl = parse_quote!(
             impl ::leptos_workers::workers::FutureWorker for TestFutureWorker {
@@ -442,21 +464,28 @@ mod tests {
                 }
             }
         );
-        assert_eq!(expected, ir.impl_type_worker);
+        assert_eq_quoted(&expected, &ir.impl_type_worker);
 
-        let creation_error_msg = "worker creation failed for TestFutureWorker";
         let expected: ItemFn = parse_quote!(
+            #[doc = r" function-level doc"]
             pub async fn future_worker(
                 request: TestRequest,
-            ) -> TestResponse {
+            ) -> Result<TestResponse, ::leptos_workers::CreateWorkerError> {
                 thread_local! {
-                    static POOL: ::leptos_workers::executors::PoolExecutor<TestFutureWorker> =
-                        ::leptos_workers::executors::PoolExecutor::<TestFutureWorker>::new(2usize).expect(#creation_error_msg);
+                    static POOL: Result<::leptos_workers::executors::PoolExecutor<TestFutureWorker>, ::leptos_workers::CreateWorkerError> =
+                        ::leptos_workers::executors::PoolExecutor::<TestFutureWorker>::new(2usize);
                 }
-                POOL.with(move |pool| pool.run(request)).expect(#creation_error_msg).1.await
+                Ok(POOL
+                    .with(move |pool| {
+                        pool.as_ref()
+                            .map_err(Clone::clone)
+                            .and_then(|pool| pool.run(request))
+                    })?
+                    .1
+                    .await)
             }
         );
-        assert_eq!(expected, ir.default_pool_func);
+        assert_eq_quoted(&expected, &ir.default_pool_func);
     }
 
     #[test]
@@ -470,6 +499,9 @@ mod tests {
                 response_type: parse_quote!(TestResponse),
             }),
             visibility: parse_quote!(pub),
+            function_attrs: vec![parse_quote!(
+                /// function-level doc
+            )],
             function_name: parse_quote!(future_worker),
             function_body: parse_quote!(
                 statement1;
@@ -483,7 +515,7 @@ mod tests {
             #[derive(Debug, Clone)]
             pub struct TestFutureWorker;
         );
-        assert_eq!(expected, ir.worker_struct);
+        assert_eq_quoted(&expected, &ir.worker_struct);
 
         let expected: ItemImpl = parse_quote!(
             impl ::leptos_workers::workers::WebWorker for TestFutureWorker {
@@ -491,7 +523,7 @@ mod tests {
                 type Response = TestResponse;
             }
         );
-        assert_eq!(expected, ir.impl_web_worker);
+        assert_eq_quoted(&expected, &ir.impl_web_worker);
 
         let expected: ItemImpl = parse_quote!(
             impl ::leptos_workers::workers::WebWorkerPath for TestFutureWorker {
@@ -500,7 +532,7 @@ mod tests {
                 }
             }
         );
-        assert_eq!(expected, ir.impl_web_worker_path);
+        assert_eq_quoted(&expected, &ir.impl_web_worker_path);
 
         let expected: ItemFn = parse_quote!(
             #[::leptos_workers::wasm_bindgen]
@@ -509,7 +541,7 @@ mod tests {
                 ::leptos_workers::workers::FutureWorkerFn::new::<TestFutureWorker>()
             }
         );
-        assert_eq!(expected, ir.wasm_bindgen_func);
+        assert_eq_quoted(&expected, &ir.wasm_bindgen_func);
 
         let expected: ItemImpl = parse_quote!(
             impl ::leptos_workers::workers::FutureWorker for TestFutureWorker {
@@ -525,21 +557,28 @@ mod tests {
                 }
             }
         );
-        assert_eq!(expected, ir.impl_type_worker);
+        assert_eq_quoted(&expected, &ir.impl_type_worker);
 
-        let creation_error_msg = "worker creation failed for TestFutureWorker";
         let expected: ItemFn = parse_quote!(
+            #[doc = r" function-level doc"]
             pub async fn future_worker(
                 request: TestRequest,
-            ) -> TestResponse {
+            ) -> Result<TestResponse, ::leptos_workers::CreateWorkerError> {
                 thread_local! {
-                    static POOL: ::leptos_workers::executors::PoolExecutor<TestFutureWorker> =
-                        ::leptos_workers::executors::PoolExecutor::<TestFutureWorker>::new(2usize).expect(#creation_error_msg);
+                    static POOL: Result<::leptos_workers::executors::PoolExecutor<TestFutureWorker>, ::leptos_workers::CreateWorkerError> =
+                        ::leptos_workers::executors::PoolExecutor::<TestFutureWorker>::new(2usize);
                 }
-                POOL.with(move |pool| pool.run(request)).expect(#creation_error_msg).1.await
+                Ok(POOL
+                    .with(move |pool| {
+                        pool.as_ref()
+                            .map_err(Clone::clone)
+                            .and_then(|pool| pool.run(request))
+                    })?
+                    .1
+                    .await)
             }
         );
-        assert_eq!(expected, ir.default_pool_func);
+        assert_eq_quoted(&expected, &ir.default_pool_func);
     }
 
     #[test]
@@ -553,6 +592,9 @@ mod tests {
                 response_type: parse_quote!(TestResponse),
             }),
             visibility: parse_quote!(pub),
+            function_attrs: vec![parse_quote!(
+                /// function-level doc
+            )],
             function_name: parse_quote!(future_worker),
             function_body: parse_quote!(
                 statement1;
@@ -566,7 +608,7 @@ mod tests {
             #[derive(Debug, Clone)]
             pub struct TestFutureWorker;
         );
-        assert_eq!(expected, ir.worker_struct);
+        assert_eq_quoted(&expected, &ir.worker_struct);
 
         let expected: ItemImpl = parse_quote!(
             impl ::leptos_workers::workers::WebWorker for TestFutureWorker {
@@ -574,7 +616,7 @@ mod tests {
                 type Response = TestResponse;
             }
         );
-        assert_eq!(expected, ir.impl_web_worker);
+        assert_eq_quoted(&expected, &ir.impl_web_worker);
 
         let expected: ItemImpl = parse_quote!(
             impl ::leptos_workers::workers::WebWorkerPath for TestFutureWorker {
@@ -583,7 +625,7 @@ mod tests {
                 }
             }
         );
-        assert_eq!(expected, ir.impl_web_worker_path);
+        assert_eq_quoted(&expected, &ir.impl_web_worker_path);
 
         let expected: ItemFn = parse_quote!(
             #[::leptos_workers::wasm_bindgen]
@@ -592,7 +634,7 @@ mod tests {
                 ::leptos_workers::workers::FutureWorkerFn::new::<TestFutureWorker>()
             }
         );
-        assert_eq!(expected, ir.wasm_bindgen_func);
+        assert_eq_quoted(&expected, &ir.wasm_bindgen_func);
 
         let expected: ItemImpl = parse_quote!(
             impl ::leptos_workers::workers::FutureWorker for TestFutureWorker {
@@ -608,25 +650,31 @@ mod tests {
                 }
             }
         );
-        assert_eq!(expected, ir.impl_type_worker);
+        assert_eq_quoted(&expected, &ir.impl_type_worker);
 
-        let creation_error_msg = "worker creation failed for TestFutureWorker";
         let expected: ItemFn = parse_quote!(
+            #[doc = r" function-level doc"]
             pub async fn future_worker(
                 request: TestRequest,
-            ) -> TestResponse {
+            ) -> Result<TestResponse, ::leptos_workers::CreateWorkerError> {
                 let _ = request;
-                #[allow(clippy::eq_op)]
                 if true {
-                    panic!("Workers can't be constructed on the server. Try using `create_effect`, `create_local_resource`, `create_action` or `spawn_local`.");
+                    panic!("Workers can't be constructed on the server. Try using `create_effect`, `create_local_resource`, `create_action` or `spawn_local`.")
                 }
                 thread_local! {
-                    static POOL: ::leptos_workers::executors::PoolExecutor<TestFutureWorker> =
-                        ::leptos_workers::executors::PoolExecutor::<TestFutureWorker>::new(2usize).expect(#creation_error_msg);
+                    static POOL: Result<::leptos_workers::executors::PoolExecutor<TestFutureWorker>, ::leptos_workers::CreateWorkerError> =
+                        ::leptos_workers::executors::PoolExecutor::<TestFutureWorker>::new(2usize);
                 }
-                POOL.with(move |pool| pool.run(request)).expect(#creation_error_msg).1.await
+                Ok(POOL
+                    .with(move |pool| {
+                        pool.as_ref()
+                            .map_err(Clone::clone)
+                            .and_then(|pool| pool.run(request))
+                    })?
+                    .1
+                    .await)
             }
         );
-        assert_eq!(expected, ir.default_pool_func);
+        assert_eq_quoted(&expected, &ir.default_pool_func);
     }
 }

@@ -1,5 +1,7 @@
+use convert_case::{Case, Casing};
 use proc_macro2::{Ident, TokenStream};
 use proc_macro_error::abort;
+use quote::format_ident;
 use syn::parse::{Parse, ParseStream};
 use syn::{Item, ItemFn};
 
@@ -9,18 +11,6 @@ pub struct Ast {
 }
 
 pub fn parse(args: &TokenStream, item: TokenStream) -> Ast {
-    if args.is_empty() {
-        abort!(
-            args,
-            "worker name missing";
-            help = "try `#[worker(YourNameHere)]`"
-        )
-    }
-
-    let Ok(worker_name) = syn::parse2::<Ident>(args.clone()) else {
-        abort!(args, format!("invalid worker name: `{args}`"))
-    };
-
     let item_fn = match syn::parse2::<Item>(item) {
         Ok(Item::Fn(item)) => item,
         Ok(item) => {
@@ -28,6 +18,13 @@ pub fn parse(args: &TokenStream, item: TokenStream) -> Ast {
         }
         Err(_) => unreachable!(),
     };
+
+    let worker_name = syn::parse2::<Option<Ident>>(args.clone())
+        .unwrap_or_else(|_| abort!(args, format!("invalid worker name: `{args}`")))
+        .unwrap_or_else(|| {
+            let worker_name = item_fn.sig.ident.to_string().to_case(Case::Pascal);
+            format_ident!("{worker_name}")
+        });
 
     Ast {
         worker_name,
@@ -48,6 +45,7 @@ impl Parse for Ast {
 mod tests {
     use super::parse;
     use quote::quote;
+    use syn::{parse_quote, Ident};
 
     #[test]
     fn valid_syntax() {
@@ -57,5 +55,17 @@ mod tests {
                 async fn future_worker(req: TestRequest) -> TestResponse {}
             ),
         );
+    }
+
+    #[test]
+    fn valid_syntax_no_name() {
+        let ast = parse(
+            &quote!(),
+            quote!(
+                async fn future_worker(req: TestRequest) -> TestResponse {}
+            ),
+        );
+        let expected: Ident = parse_quote!(FutureWorker);
+        assert_eq!(ast.worker_name, expected);
     }
 }

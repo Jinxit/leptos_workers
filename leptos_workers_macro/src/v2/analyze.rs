@@ -6,8 +6,8 @@ use proc_macro_error::abort;
 use quote::quote;
 use syn::spanned::Spanned;
 use syn::{
-    parse_quote, parse_quote_spanned, FnArg, Generics, Pat, ReturnType, Signature, Stmt, Type,
-    Visibility,
+    parse_quote, parse_quote_spanned, Attribute, FnArg, Generics, Pat, ReturnType, Signature, Stmt,
+    Type, Visibility,
 };
 
 pub fn analyze(ast: Ast) -> Model {
@@ -16,11 +16,13 @@ pub fn analyze(ast: Ast) -> Model {
     let visibility = ast.item_fn.vis;
     let function_name = ast.item_fn.sig.ident;
     let function_body = ast.item_fn.block.stmts;
+    let function_attrs = ast.item_fn.attrs;
 
     Model {
         worker_name,
         worker_type,
         visibility,
+        function_attrs,
         function_name,
         function_body,
     }
@@ -217,6 +219,7 @@ pub struct Model {
     pub worker_name: Ident,
     pub worker_type: WorkerType,
     pub visibility: Visibility,
+    pub function_attrs: Vec<Attribute>,
     pub function_name: Ident,
     pub function_body: Vec<Stmt>,
 }
@@ -234,7 +237,11 @@ mod tests {
         let model = analyze::analyze(Ast {
             worker_name: parse_quote!(Name),
             item_fn: parse_quote!(
-                async fn future_worker(request: TestRequest) -> TestResponse {
+                /// function-level doc
+                async fn future_worker(
+                    /// parameter-level doc
+                    request: TestRequest,
+                ) -> TestResponse {
                     statement1;
                     let statement2 = 0;
                     TestResponse
