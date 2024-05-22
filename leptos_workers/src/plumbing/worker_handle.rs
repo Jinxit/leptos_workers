@@ -7,6 +7,7 @@ use crate::workers::StreamWorker;
 use crate::workers::WebWorker;
 use alloc::rc::Rc;
 use futures::{FutureExt, Stream, StreamExt};
+use send_wrapper::SendWrapper;
 use std::cell::RefCell;
 use std::marker::PhantomData;
 use tracing::warn;
@@ -17,14 +18,14 @@ use web_sys::{MessageEvent, Worker};
 
 #[derive(Debug, Clone)]
 pub struct WorkerHandle<W: WebWorker> {
-    worker: Worker,
+    worker: SendWrapper<Worker>,
     _phantom: PhantomData<W>,
 }
 
 impl<W: WebWorker> WorkerHandle<W> {
     pub(crate) fn new() -> Result<Self, CreateWorkerError> {
         Ok(Self {
-            worker: create_worker::<W>()?,
+            worker: SendWrapper::new(create_worker::<W>()?),
             _phantom: PhantomData,
         })
     }
