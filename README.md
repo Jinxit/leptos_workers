@@ -1,8 +1,8 @@
 # leptos_workers
 
-[![Crates.io](https://img.shields.io/crates/v/leptos_workers.svg)](https://crates.io/crates/leptos-workers)
-[![Docs.rs](https://docs.rs/leptos_workers/badge.svg)](https://docs.rs/leptos-workers)
-[![CI](https://github.com/Jinxit/leptos_workers/workflows/CI/badge.svg)](https://github.com/Jinxit/leptos-workers/actions)
+[![Crates.io](https://img.shields.io/crates/v/leptos_workers.svg)](https://crates.io/crates/leptos_workers)
+[![Docs.rs](https://docs.rs/leptos_workers/badge.svg)](https://docs.rs/leptos_workers)
+[![CI](https://github.com/Jinxit/leptos_workers/workflows/CI/badge.svg)](https://github.com/Jinxit/leptos_workers/actions)
 
 **This crate is in an early alpha stage**, use at your own risk. The API *will* change.
 

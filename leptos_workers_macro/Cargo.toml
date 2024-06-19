@@ -5,6 +5,10 @@ edition = "2021"
 description = "Macros for leptos_workers, a WebWorker library for the Leptos web framework."
 license = "MIT OR Apache-2.0"
 readme = "../README.md"
+authors = ["Lucas Åström"]
+repository = "https://github.com/Jinxit/leptos_workers"
+keywords = ["leptos", "web-workers", "wasm"]
+categories = ["wasm", "web-programming"]
 
 [lib]
 name = "leptos_workers_macro"

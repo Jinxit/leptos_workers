@@ -29,7 +29,7 @@ pub mod workers;
 ///
 /// This macro accepts the following arguments:
 ///
-/// 1. **Required**: The name of the worker, typically in PascalCase.
+/// 1. **Optional**: The name of the worker, typically in PascalCase.
 ///    This will not be visible if using the worker function directly, but is used internally
 ///    as well as if you decide to use explicit executors.
 ///
