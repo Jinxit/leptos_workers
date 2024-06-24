@@ -1,6 +1,6 @@
 [package]
 name = "leptos_workers"
-version = "0.2.1"
+version = "0.2.2"
 edition = "2021"
 description = "WebWorker library for the Leptos web framework."
 license = "MIT OR Apache-2.0"
@@ -17,7 +17,7 @@ bincode = ["dep:bincode"]
 ssr = ["leptos_workers_macro/ssr"]
 
 [dependencies]
-leptos_workers_macro = { path = "../leptos_workers_macro", version = "0.2.1" }
+leptos_workers_macro = { path = "../leptos_workers_macro", version = "0.2.2" }
 
 bincode = { version = "2.0.0-rc.3", features = ["serde"], optional = true }
 console_error_panic_hook = "0.1"
