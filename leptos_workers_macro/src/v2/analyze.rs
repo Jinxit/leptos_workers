@@ -28,7 +28,7 @@ pub fn analyze(ast: Ast) -> Model {
     }
 }
 
-const VALID_SIGNATURES: &str = indoc! { r#"
+const VALID_SIGNATURES: &str = indoc! { r"
     try one of the following:
     Callback:
         [pub] [async] fn worker(req: Request, callback: impl Fn(Response))
@@ -38,7 +38,7 @@ const VALID_SIGNATURES: &str = indoc! { r#"
         [pub] [async] fn worker(req: Request) -> Response
     Stream:
         [pub] [async] fn worker(req: Request) -> impl leptos_workers::Stream<Item = Response>
-"# };
+" };
 
 fn analyze_worker_type(sig: &Signature) -> WorkerType {
     // this needs the full Option::None to properly pattern match
