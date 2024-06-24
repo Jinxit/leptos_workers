@@ -2,7 +2,7 @@ use js_sys::Array;
 use thiserror::Error;
 use tracing::warn;
 use wasm_bindgen::JsValue;
-use web_sys::{Blob, BlobPropertyBag, Url, window, Worker, WorkerOptions, WorkerType};
+use web_sys::{window, Blob, BlobPropertyBag, Url, Worker, WorkerOptions, WorkerType};
 
 use crate::workers::WebWorker;
 
@@ -25,6 +25,9 @@ pub enum CreateWorkerError {
     #[doc(hidden)]
     #[error("Javascript error when creating the blob URL: {0:?}")]
     BlobUrl(JsValue),
+    /// Failure due to not being able to determine the worker URL.
+    #[error("Unable to determine the worker URL")]
+    WorkerUrl,
     /// Failure due to issues related to WASM packaging or browser compatibility.
     #[error("Javascript error when creating the worker: {0:?}")]
     NewWorker(JsValue),
@@ -35,19 +38,34 @@ pub fn create_worker<W: WebWorker>() -> Result<Worker, CreateWorkerError> {
     let output_name = option_env!("LEPTOS_OUTPUT_NAME").or_else(|| option_env!("CARGO_BIN_NAME"));
 
     // if we found the output name, use it as an additional condition just to be sure, otherwise skip it and hope for the best
-    let output_name_condition = output_name.map(|s| format!("[href*='{s}']")).unwrap_or_default();
+    let output_name_condition = output_name
+        .map(|s| format!("[href*='{s}']"))
+        .unwrap_or_default();
     if output_name.is_none() {
         warn!("No output name found, if the worker is not loading, ensure either LEPTOS_OUTPUT_NAME or CARGO_BIN_NAME matches the output .wasm file name.");
     }
 
     // try to find the url from the <link> tags
-    let document = window().ok_or(CreateWorkerError::NoWindow)?.document().ok_or(CreateWorkerError::NoDocument)?;
-    let js_path = document.query_selector(&format!("head > link{output_name_condition}[href$='.js']"))
+    let document = window()
+        .ok_or(CreateWorkerError::NoWindow)?
+        .document()
+        .ok_or(CreateWorkerError::NoDocument)?;
+    let js_path = document
+        .query_selector(&format!("head > link{output_name_condition}[href$='.js']"))
         .expect("query selector format to be valid")
-        .map(|el| el.get_attribute("href").expect("query selector to only find <link> tags with href set"));
-    let wasm_path = document.query_selector(&format!("head > link{output_name_condition}[href$='.wasm']"))
+        .map(|el| {
+            el.get_attribute("href")
+                .expect("query selector to only find <link> tags with href set")
+        });
+    let wasm_path = document
+        .query_selector(&format!(
+            "head > link{output_name_condition}[href$='.wasm']"
+        ))
         .expect("query selector format to be valid")
-        .map(|el| el.get_attribute("href").expect("query selector to only find <link> tags with href set"));
+        .map(|el| {
+            el.get_attribute("href")
+                .expect("query selector to only find <link> tags with href set")
+        });
 
     let (js_path, wasm_path) = if let Some((js_path, wasm_path)) = js_path.zip(wasm_path) {
         (js_path, wasm_path)
@@ -59,25 +77,31 @@ pub fn create_worker<W: WebWorker>() -> Result<Worker, CreateWorkerError> {
             let base = format!("{site_pkg_dir}/{output_name}");
             (format!("{base}.js"), format!("{base}.wasm"))
         } else if let Some(output_name) = option_env!("CARGO_BIN_NAME") {
-            (format!("{output_name}.js"), format!("{output_name}_bg.wasm"))
+            (
+                format!("{output_name}.js"),
+                format!("{output_name}_bg.wasm"),
+            )
         } else {
-            panic!("No output name found")
+            return Err(CreateWorkerError::WorkerUrl);
         }
     };
     create_worker_with_url::<W>(&js_path, &wasm_path)
 }
 
-pub fn create_worker_with_url<W: WebWorker>(js_path: &str, wasm_path: &str) -> Result<Worker, CreateWorkerError> {
+pub fn create_worker_with_url<W: WebWorker>(
+    js_path: &str,
+    wasm_path: &str,
+) -> Result<Worker, CreateWorkerError> {
     let worker_js_blob = {
         let base = window()
             .ok_or(CreateWorkerError::NoWindow)?
             .location()
             .href()
             .map_err(CreateWorkerError::WindowHref)?;
-        let js_url = Url::new_with_base(&js_path, &base)
+        let js_url = Url::new_with_base(js_path, &base)
             .map_err(CreateWorkerError::WasmUrl)?
             .to_string();
-        let wasm_url = Url::new_with_base(&wasm_path, &base)
+        let wasm_url = Url::new_with_base(wasm_path, &base)
             .map_err(CreateWorkerError::WasmUrl)?
             .to_string();
 
@@ -138,7 +162,7 @@ pub fn create_worker_with_url<W: WebWorker>(js_path: &str, wasm_path: &str) -> R
             .name(W::path())
             .type_(WorkerType::Module),
     )
-        .map_err(CreateWorkerError::NewWorker)?;
+    .map_err(CreateWorkerError::NewWorker)?;
 
     Ok(worker)
 }
@@ -146,7 +170,7 @@ pub fn create_worker_with_url<W: WebWorker>(js_path: &str, wasm_path: &str) -> R
 fn string_to_blob(options: &BlobPropertyBag, s: &str) -> Result<Blob, CreateWorkerError> {
     let json_jsvalue = JsValue::from_str(s);
     #[allow(clippy::from_iter_instead_of_collect)]
-        let json_jsvalue_array = Array::from_iter(std::iter::once(json_jsvalue));
+    let json_jsvalue_array = Array::from_iter(std::iter::once(json_jsvalue));
 
     Blob::new_with_str_sequence_and_options(&json_jsvalue_array, options)
         .map_err(CreateWorkerError::BlobUrl)
