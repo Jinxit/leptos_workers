@@ -25,9 +25,6 @@ pub enum CreateWorkerError {
     #[doc(hidden)]
     #[error("Javascript error when creating the blob URL: {0:?}")]
     BlobUrl(JsValue),
-    /// Failure due to not being able to determine the worker URL.
-    #[error("Unable to determine the worker URL")]
-    WorkerUrl,
     /// Failure due to issues related to WASM packaging or browser compatibility.
     #[error("Javascript error when creating the worker: {0:?}")]
     NewWorker(JsValue),
@@ -82,7 +79,13 @@ pub fn create_worker<W: WebWorker>() -> Result<Worker, CreateWorkerError> {
                 format!("{output_name}_bg.wasm"),
             )
         } else {
-            return Err(CreateWorkerError::WorkerUrl);
+            // If we reached this point, we are likely in a test environment.
+            // Worst case scenario, the user should see the earlier warning
+            // about not finding the output name and act accordingly.
+            (
+                "wasm-bindgen-test.js".to_string(),
+                "wasm-bindgen-test_bg.wasm".to_string(),
+            )
         }
     };
     create_worker_with_url::<W>(&js_path, &wasm_path)
