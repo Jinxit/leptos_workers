@@ -6,6 +6,7 @@ use std::cell::RefCell;
 use std::sync::Mutex;
 use wasm_bindgen::prelude::wasm_bindgen;
 use wasm_bindgen::JsValue;
+use wasm_bindgen_futures::future_to_promise;
 
 /// Takes a single requests and can return a stream of responses using the provided callback.
 ///
@@ -36,15 +37,19 @@ impl CallbackWorkerFn {
                 let callback = Rc::new(callback);
                 let callback2 = callback.clone();
                 let request = codec::from_slice(&request[..]).expect("byte deserialization error");
-                W::stream_callback(
-                    request,
-                    Box::new(move |response| {
-                        let value = serde_wasm_bindgen::to_value(&response)
-                            .expect("js serialization error");
-                        callback(value);
-                    }),
-                );
-                callback2(JsValue::NULL);
+                let _ = future_to_promise(async move {
+                    (W::stream_callback(
+                        request,
+                        Box::new(move |response| {
+                            let value = serde_wasm_bindgen::to_value(&response)
+                                .expect("js serialization error");
+                            callback(value);
+                        }),
+                    ))
+                    .await;
+                    callback2(JsValue::NULL);
+                    Ok(JsValue::undefined())
+                });
             },
         }
     }
