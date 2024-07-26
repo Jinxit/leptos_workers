@@ -118,7 +118,7 @@ fn analyze_worker_type(sig: &Signature) -> WorkerType {
             &third.ty,
         );
         if let Some((second_tokens, third_tokens)) = receiver_opt.zip(sender_opt) {
-            return WorkerType::Channel(WorkerTypeChannel {
+            WorkerType::Channel(WorkerTypeChannel {
                 init_pat: *first.pat.clone(),
                 init_type: *first.ty.clone(),
                 receiver_pat: *second.pat.clone(),
@@ -127,7 +127,7 @@ fn analyze_worker_type(sig: &Signature) -> WorkerType {
                 sender_pat: *third.pat.clone(),
                 sender_type: *third.ty.clone(),
                 response_type: parse_quote_spanned!(third.span()=> #third_tokens),
-            });
+            })
         } else {
             abort!(sig, "couldn't match worker type"; help = VALID_SIGNATURES)
         }
