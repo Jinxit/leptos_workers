@@ -215,6 +215,7 @@ impl<W: ChannelWorker> PoolExecutor<W> {
     /// See [`CreateWorkerError`].
     pub fn channel(
         &self,
+        init: W::Init,
     ) -> Result<
         (
             AbortHandle<W>,
@@ -227,12 +228,13 @@ impl<W: ChannelWorker> PoolExecutor<W> {
         let (proxy_tx, proxy_rx) = flume::unbounded();
         let (abort_handle, (worker_tx, worker_rx)) = {
             let mut w = worker.borrow_mut();
+
             w.generation += 1;
             let abort_handle = AbortHandle {
                 worker: Rc::downgrade(&worker),
                 generation: w.generation,
             };
-            (abort_handle, w.handle.channel())
+            (abort_handle, w.handle.channel(init))
         };
         spawn_local(async move {
             while let Ok(request) = proxy_rx.recv_async().await {

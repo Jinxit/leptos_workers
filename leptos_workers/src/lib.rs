@@ -88,12 +88,15 @@ pub use workers::Transferable;
 /// ```
 /// # use serde::{Serialize, Deserialize};
 /// # #[derive(Clone, Serialize, Deserialize)]
+/// # pub struct MyInit;
+/// # #[derive(Clone, Serialize, Deserialize)]
 /// # pub struct MyRequest;
 /// # #[derive(Clone, Serialize, Deserialize)]
 /// # pub struct MyResponse;
 /// # use leptos_workers::worker;
 /// #[worker(MyChannelWorker)]
 /// /*pub?*/ /*async?*/ fn worker(
+///     init: MyInit, // The input to the worker, requires Clone + Serialize + DeserializeOwned like Request and Response
 ///     rx: leptos_workers::Receiver<MyRequest>,
 ///     tx: leptos_workers::Sender<MyResponse>
 /// )
@@ -103,9 +106,10 @@ pub use workers::Transferable;
 /// Which will be transformed to:
 ///
 /// ```
+/// # pub struct MyInit;
 /// # pub struct MyRequest;
 /// # pub struct MyResponse;
-/// /*pub?*/ fn worker() -> Result<
+/// /*pub?*/ fn worker(init: MyInit) -> Result<
 ///     (
 ///         leptos_workers::Sender<MyRequest>,
 ///         leptos_workers::Receiver<MyResponse>,

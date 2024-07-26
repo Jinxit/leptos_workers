@@ -188,6 +188,8 @@ fn lower_impl_type_worker_channel(
     } = model;
 
     let WorkerTypeChannel {
+        init_pat,
+        init_type,
         receiver_pat,
         request_type,
         sender_pat,
@@ -199,13 +201,13 @@ fn lower_impl_type_worker_channel(
 
     let func = parse_quote_spanned!(worker_name.span()=>
         #(#function_attrs)*
-        #visibility fn #function_name() -> Result<(::leptos_workers::Sender<#request_type>, ::leptos_workers::Receiver<#response_type>), ::leptos_workers::CreateWorkerError> {
+        #visibility fn #function_name(#init_pat: #init_type) -> Result<(::leptos_workers::Sender<#request_type>, ::leptos_workers::Receiver<#response_type>), ::leptos_workers::CreateWorkerError> {
             #(#thread_pool)*
             let (_, tx, rx) = POOL
                 .with(move |pool| {
                     pool.as_ref()
                         .map_err(Clone::clone)
-                        .and_then(|pool| pool.channel())
+                        .and_then(|pool| pool.channel(#init_pat))
                 })?;
             Ok((tx, rx))
         }
@@ -213,7 +215,9 @@ fn lower_impl_type_worker_channel(
 
     let imp = parse_quote_spanned!(worker_name.span()=>
         impl ::leptos_workers::workers::ChannelWorker for #worker_name {
-            fn channel(#receiver_pat: ::leptos_workers::Receiver<Self::Request>, #sender_pat: ::leptos_workers::Sender<Self::Response>) -> ::leptos_workers::LocalBoxFuture<'static, ()>  {
+            type Init = #init_type;
+
+            fn channel(#init_pat: #init_type, #receiver_pat: ::leptos_workers::Receiver<Self::Request>, #sender_pat: ::leptos_workers::Sender<Self::Response>) -> ::leptos_workers::LocalBoxFuture<'static, ()>  {
                 Box::pin(async move {
                     #(#function_body)*
                 })

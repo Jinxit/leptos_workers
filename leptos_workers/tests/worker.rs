@@ -8,6 +8,8 @@ use wasm_bindgen_test::*;
 wasm_bindgen_test_configure!(run_in_browser);
 
 #[derive(PartialEq, Debug, Clone, Serialize, Deserialize)]
+pub struct TestInit(i32);
+#[derive(PartialEq, Debug, Clone, Serialize, Deserialize)]
 pub struct TestRequest(i32);
 #[derive(PartialEq, Debug, Clone, Serialize, Deserialize)]
 pub struct TestResponse(i32);
@@ -27,9 +29,12 @@ pub async fn callback_worker_with_mut_arg(mut req: TestRequest, callback: impl F
 
 #[worker(TestChannelWorker)]
 pub async fn channel_worker(
+    init: TestInit,
     rx: leptos_workers::Receiver<TestRequest>,
     tx: leptos_workers::Sender<TestResponse>,
 ) {
+    assert_eq!(init.0, 3);
+
     while let Ok(req) = rx.recv_async().await {
         tx.send_async(TestResponse(req.0 * 2)).await.unwrap();
     }
@@ -37,6 +42,7 @@ pub async fn channel_worker(
 
 #[worker(TestChannelWorkerMut)]
 pub async fn channel_worker_with_mut_arg(
+    _init: TestInit,
     mut rx: leptos_workers::Receiver<TestRequest>,
     mut tx: leptos_workers::Sender<TestResponse>,
 ) {
@@ -113,7 +119,7 @@ async fn channel_worker_test() {
     use flume::TryRecvError;
     use std::mem::drop;
 
-    let (tx, rx) = channel_worker().unwrap();
+    let (tx, rx) = channel_worker(TestInit(3)).unwrap();
     tx.send_async(TestRequest(5)).await.unwrap();
     tx.send_async(TestRequest(7)).await.unwrap();
     let first = rx.recv_async().await.unwrap();
