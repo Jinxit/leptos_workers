@@ -48,6 +48,7 @@ impl<T: TransferableType> Transferable<T> {
 }
 
 /// A trait for implementing the types that can be transferred.
+#[doc(hidden)]
 pub trait TransferableType:
     std::fmt::Debug + Clone + From<JsValue> + Into<JsValue> + wasm_bindgen::JsCast
 {

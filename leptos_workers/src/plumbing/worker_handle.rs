@@ -128,7 +128,14 @@ impl<W: CallbackWorker> WorkerHandle<W> {
 }
 
 impl<W: ChannelWorker> WorkerHandle<W> {
-    pub fn channel(&mut self) -> (flume::Sender<W::Request>, flume::Receiver<W::Response>) {
+    pub fn channel(
+        &mut self,
+        init: W::Init,
+    ) -> (flume::Sender<W::Request>, flume::Receiver<W::Response>) {
+        // Send the init data through directly:
+        TransferableMessage::new(TransferableMessageType::ReqChannel, init)
+            .post_to_worker(&self.worker);
+
         let (request_tx, request_rx) = flume::unbounded::<W::Request>();
         let (response_tx, response_rx) = flume::unbounded::<W::Response>();
         let response_tx = Rc::new(RefCell::new(Some(response_tx)));

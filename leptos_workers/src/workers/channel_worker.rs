@@ -1,8 +1,9 @@
 use crate::workers::web_worker::WebWorker;
 use futures::future::LocalBoxFuture;
+use serde::{de::DeserializeOwned, Serialize};
 use std::{
     cell::RefCell,
-    sync::{Arc, Mutex},
+    sync::{atomic::AtomicBool, Arc, Mutex},
 };
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::spawn_local;
@@ -13,8 +14,12 @@ use super::{TransferableMessage, TransferableMessageType};
 ///
 /// Its main use is to have a duplex connection to a persistent stateful worker, rather than one-off tasks.
 pub trait ChannelWorker: WebWorker {
+    /// The init data given to the worker.
+    type Init: Clone + Serialize + DeserializeOwned;
+
     /// Executes the worker implementation. Should not be called by user code, use an [Executor](crate::executors) instead.
     fn channel(
+        init: Self::Init,
         rx: flume::Receiver<Self::Request>,
         tx: flume::Sender<Self::Response>,
     ) -> LocalBoxFuture<'static, ()>;
@@ -40,32 +45,38 @@ impl ChannelWorkerFn {
                  which is probably unnecessary - but it's the easiest way without storing
                  state after initialization
         */
-        let callback: Arc<Mutex<Option<Box<dyn Fn(TransferableMessage) + Send + Sync + 'static>>>> =
-            Arc::default();
+        type Callback =
+            Arc<Mutex<Option<Box<dyn Fn(TransferableMessage) + Send + Sync + 'static>>>>;
+        let callback: Callback = Arc::default();
         let (request_tx, request_rx) = flume::unbounded();
         let (response_tx, response_rx) = flume::unbounded();
         let request_tx = Arc::new(Mutex::new(Some(request_tx)));
-        spawn_local(Box::pin(W::channel(request_rx, response_tx)));
-        spawn_local(Box::pin({
-            let callback = callback.clone();
-            async move {
-                while let Ok(response) = response_rx.recv_async().await {
+
+        let initializer = Mutex::new(Some(move |callback: &Callback, init: W::Init| {
+            spawn_local(Box::pin(W::channel(init, request_rx, response_tx)));
+            spawn_local(Box::pin({
+                let callback = callback.clone();
+                async move {
+                    while let Ok(response) = response_rx.recv_async().await {
+                        let callback = callback.lock().expect("mutex should not be poisoned");
+                        if let Some(callback) = callback.as_ref() {
+                            callback(TransferableMessage::new(
+                                TransferableMessageType::Response,
+                                response,
+                            ));
+                        }
+                    }
                     let callback = callback.lock().expect("mutex should not be poisoned");
                     if let Some(callback) = callback.as_ref() {
-                        callback(TransferableMessage::new(
+                        callback(TransferableMessage::new_null(
                             TransferableMessageType::Response,
-                            response,
                         ));
                     }
                 }
-                let callback = callback.lock().expect("mutex should not be poisoned");
-                if let Some(callback) = callback.as_ref() {
-                    callback(TransferableMessage::new_null(
-                        TransferableMessageType::Response,
-                    ));
-                }
-            }
+            }));
         }));
+
+        let initialized = AtomicBool::new(false);
         Self {
             path: W::path(),
             function: Arc::new(move |request, new_callback| {
@@ -75,11 +86,20 @@ impl ChannelWorkerFn {
                 } else if let Some(request_tx) =
                     &*request_tx.lock().expect("mutex should not be poisoned")
                 {
-                    let request_data = request.into_inner();
-                    let mut callback = callback.lock().expect("mutex should not be poisoned");
-                    *callback = Some(new_callback);
-                    // this will error when the receiver is dropped
-                    let _ = request_tx.send(request_data);
+                    *callback.lock().expect("mutex should not be poisoned") = Some(new_callback);
+
+                    // On first call, the message will contain the init data that can be used to start the worker fn.
+                    if !initialized.swap(true, std::sync::atomic::Ordering::Relaxed) {
+                        (initializer
+                            .lock()
+                            .expect("mutex should not be poisoned")
+                            .take()
+                            .unwrap())(&callback, request.into_inner());
+                    } else {
+                        let request_data = request.into_inner();
+                        // this will error when the receiver is dropped
+                        let _ = request_tx.send(request_data);
+                    }
                 }
             }),
         }

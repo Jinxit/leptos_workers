@@ -67,7 +67,10 @@ impl<W: ChannelWorker> SingleExecutor<W> {
     /// # Errors
     /// See [`CreateWorkerError`].
     #[must_use]
-    pub fn channel(&mut self) -> (flume::Sender<W::Request>, flume::Receiver<W::Response>) {
-        self.handle.channel()
+    pub fn channel(
+        &mut self,
+        init: W::Init,
+    ) -> (flume::Sender<W::Request>, flume::Receiver<W::Response>) {
+        self.handle.channel(init)
     }
 }
