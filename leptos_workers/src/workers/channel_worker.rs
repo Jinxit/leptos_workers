@@ -1,10 +1,13 @@
-use crate::codec;
 use crate::workers::web_worker::WebWorker;
 use futures::future::LocalBoxFuture;
-use std::cell::RefCell;
-use std::sync::{Arc, Mutex};
+use std::{
+    cell::RefCell,
+    sync::{Arc, Mutex},
+};
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::spawn_local;
+
+use super::{TransferableMessage, TransferableMessageType};
 
 /// Takes multiple requests and can reply with multiple responses using channels.
 ///
@@ -22,8 +25,10 @@ pub trait ChannelWorker: WebWorker {
 #[doc(hidden)]
 pub struct ChannelWorkerFn {
     pub(crate) path: &'static str,
-    pub(crate) function:
-        Arc<dyn Fn(&Vec<u8>, Box<dyn Fn(JsValue) + Send + Sync + 'static>) + Send + Sync + 'static>,
+    pub(crate) function: Arc<
+        dyn Fn(TransferableMessage, Box<dyn Fn(TransferableMessage) + Send + Sync + 'static>)
+            + 'static,
+    >,
 }
 
 impl ChannelWorkerFn {
@@ -35,7 +40,7 @@ impl ChannelWorkerFn {
                  which is probably unnecessary - but it's the easiest way without storing
                  state after initialization
         */
-        let callback: Arc<Mutex<Option<Box<dyn Fn(JsValue) + Send + Sync + 'static>>>> =
+        let callback: Arc<Mutex<Option<Box<dyn Fn(TransferableMessage) + Send + Sync + 'static>>>> =
             Arc::default();
         let (request_tx, request_rx) = flume::unbounded();
         let (response_tx, response_rx) = flume::unbounded();
@@ -45,34 +50,36 @@ impl ChannelWorkerFn {
             let callback = callback.clone();
             async move {
                 while let Ok(response) = response_rx.recv_async().await {
-                    let value =
-                        serde_wasm_bindgen::to_value(&response).expect("js serialization error");
                     let callback = callback.lock().expect("mutex should not be poisoned");
                     if let Some(callback) = callback.as_ref() {
-                        callback(value);
+                        callback(TransferableMessage::new(
+                            TransferableMessageType::Response,
+                            response,
+                        ));
                     }
                 }
                 let callback = callback.lock().expect("mutex should not be poisoned");
                 if let Some(callback) = callback.as_ref() {
-                    callback(JsValue::NULL);
+                    callback(TransferableMessage::new_null(
+                        TransferableMessageType::Response,
+                    ));
                 }
             }
         }));
         Self {
             path: W::path(),
             function: Arc::new(move |request, new_callback| {
-                if request.is_empty() {
+                if request.is_null() {
                     let mut request_tx = request_tx.lock().expect("mutex should not be poisoned");
                     *request_tx = None;
                 } else if let Some(request_tx) =
                     &*request_tx.lock().expect("mutex should not be poisoned")
                 {
-                    let request =
-                        codec::from_slice(&request[..]).expect("byte deserialization error");
+                    let request_data = request.into_inner();
                     let mut callback = callback.lock().expect("mutex should not be poisoned");
                     *callback = Some(new_callback);
                     // this will error when the receiver is dropped
-                    let _ = request_tx.send(request);
+                    let _ = request_tx.send(request_data);
                 }
             }),
         }
@@ -80,6 +87,7 @@ impl ChannelWorkerFn {
 }
 
 mod private {
+
     use crate::workers::channel_worker::{ChannelWorkerFn, CHANNEL_WORKER_FN};
     use js_sys::global;
     use wasm_bindgen::prelude::wasm_bindgen;
@@ -92,14 +100,13 @@ mod private {
 
         let worker_scope: DedicatedWorkerGlobalScope = JsValue::from(global()).into();
         if worker_scope.name() == channel_worker.path {
-            let cell = CHANNEL_WORKER_FN
-                .lock()
-                .expect("failed to lock STREAM_WORKER_FN");
-            let mut opt = cell.borrow_mut();
-            *opt = Some(channel_worker.clone());
+            CHANNEL_WORKER_FN.with_borrow_mut(move |opt| {
+                *opt = Some(channel_worker.clone());
+            });
         }
     }
 }
 
-pub(crate) static CHANNEL_WORKER_FN: Mutex<RefCell<Option<ChannelWorkerFn>>> =
-    Mutex::new(RefCell::new(None));
+thread_local! {
+    pub(crate) static CHANNEL_WORKER_FN: RefCell<Option<ChannelWorkerFn>> = RefCell::new(None);
+}

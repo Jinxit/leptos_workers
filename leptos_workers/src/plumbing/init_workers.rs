@@ -1,8 +1,7 @@
-use crate::plumbing::{WorkerRequest, WorkerRequestType};
-use crate::workers::CALLBACK_WORKER_FN;
 use crate::workers::CHANNEL_WORKER_FN;
 use crate::workers::FUTURE_WORKER_FN;
 use crate::workers::STREAM_WORKER_FN;
+use crate::workers::{TransferableMessage, TransferableMessageType, CALLBACK_WORKER_FN};
 use futures::StreamExt;
 use js_sys::global;
 use js_sys::Function;
@@ -37,34 +36,26 @@ pub fn init_workers() {
     let onmessage: Closure<dyn FnMut(MessageEvent)> = Closure::new(move |event: MessageEvent| {
         let worker_scope: DedicatedWorkerGlobalScope = JsValue::from(global()).into();
 
-        /*
-            Note: There is a certain asymmetry going on here. Messages come in as a JsValue,
-                  but at that point we do not know the type of the message. Is it a Future-,
-                  a Callback- or a StreamWorker? That's why the message is serialized to a
-                  Vec<u8> and then wrapped in a WorkerRequest.
-
-                  This is mostly a remnant of the initial concept being structured around
-                  a single worker being able to implement multiple of these traits, and could
-                  potentially be refactored.
-        */
-        let request: WorkerRequest = serde_wasm_bindgen::from_value(event.data())
-            .expect("failed to deserialize worker message");
-        match request.request_type {
-            WorkerRequestType::Future => {
+        let msg = TransferableMessage::decode(&event);
+        match msg.message_type() {
+            TransferableMessageType::ReqFuture => {
                 spawn_local(async move {
-                    on_message_future_worker(&worker_scope, &request).await;
+                    on_message_future_worker(&worker_scope, msg).await;
                 });
             }
-            WorkerRequestType::Stream => {
+            TransferableMessageType::ReqStream => {
                 spawn_local(async move {
-                    on_message_stream_worker(&worker_scope, &request).await;
+                    on_message_stream_worker(&worker_scope, msg).await;
                 });
             }
-            WorkerRequestType::Callback => {
-                on_message_callback_worker(worker_scope, &request);
+            TransferableMessageType::ReqCallback => {
+                on_message_callback_worker(worker_scope, msg);
             }
-            WorkerRequestType::Channel => {
-                on_message_channel_worker(&request);
+            TransferableMessageType::ReqChannel => {
+                on_message_channel_worker(msg);
+            }
+            TransferableMessageType::Response => {
+                panic!("Wasn't expecting a response here");
             }
         }
     });
@@ -74,93 +65,78 @@ pub fn init_workers() {
     onmessage.forget();
 }
 
-fn on_message_channel_worker(request: &WorkerRequest) {
-    let cell = CHANNEL_WORKER_FN
-        .lock()
-        .expect("failed to lock mutex for ChannelWorker");
-    let channel_worker_fn = cell.borrow();
-    let channel = &channel_worker_fn
-        .as_ref()
-        .expect("Tried to use a ChannelWorker which was not registered.")
-        .function;
-
-    channel(
-        &request.request_data,
-        Box::new(move |response| {
-            let worker_scope: DedicatedWorkerGlobalScope = JsValue::from(global()).into();
-            worker_scope
-                .post_message(&response)
-                .expect("failed to post message for ChannelWorker");
-        }),
-    );
+fn on_message_channel_worker(msg: TransferableMessage) {
+    CHANNEL_WORKER_FN.with_borrow(move |channel_worker_fn| {
+        let channel = &channel_worker_fn
+            .as_ref()
+            .expect("Tried to use a ChannelWorker which was not registered.")
+            .function;
+        channel(
+            msg,
+            Box::new(move |response| {
+                let worker_scope: DedicatedWorkerGlobalScope = JsValue::from(global()).into();
+                response.post_from_worker(&worker_scope);
+            }),
+        );
+    })
 }
 
-fn on_message_callback_worker(worker_scope: DedicatedWorkerGlobalScope, request: &WorkerRequest) {
-    let cell = CALLBACK_WORKER_FN
+fn on_message_callback_worker(worker_scope: DedicatedWorkerGlobalScope, msg: TransferableMessage) {
+    let callback_worker_fn = CALLBACK_WORKER_FN
         .lock()
         .expect("failed to lock mutex for CallbackWorker");
-    let callback_worker_fn = cell.borrow();
     let stream_callback = callback_worker_fn
         .as_ref()
         .expect("Tried to use a CallbackWorker which was not registered.")
         .function;
 
     stream_callback(
-        &request.request_data,
+        msg,
         Box::new(move |response| {
-            worker_scope
-                .post_message(&response)
-                .expect("failed to post message for CallbackWorker");
+            response.post_from_worker(&worker_scope);
         }),
     );
 }
 
 async fn on_message_stream_worker(
     worker_scope: &DedicatedWorkerGlobalScope,
-    request: &WorkerRequest,
+    msg: TransferableMessage,
 ) {
     let mut stream = {
-        let cell = STREAM_WORKER_FN
+        let callback_worker_fn = STREAM_WORKER_FN
             .lock()
             .expect("failed to lock mutex for StreamWorker");
-        let callback_worker_fn = cell.borrow();
         let stream = callback_worker_fn
             .as_ref()
             .expect("Tried to use a StreamWorker which was not registered.")
             .function;
 
-        stream(&request.request_data)
+        stream(msg)
     };
 
     while let Some(response) = stream.next().await {
-        worker_scope
-            .post_message(&response)
-            .expect("failed to post message for StreamWorker");
+        response.post_from_worker(&worker_scope);
     }
-    worker_scope
-        .post_message(&JsValue::NULL)
-        .expect("failed to post finishing message for StreamWorker");
+    TransferableMessage::new_null(TransferableMessageType::Response)
+        .post_from_worker(&worker_scope);
 }
 
 async fn on_message_future_worker(
     worker_scope: &DedicatedWorkerGlobalScope,
-    request: &WorkerRequest,
+    msg: TransferableMessage,
 ) {
     let future = {
-        let cell = FUTURE_WORKER_FN
+        let future_worker_fn = FUTURE_WORKER_FN
             .lock()
             .expect("failed to lock mutex for FutureWorker");
-        let future_worker_fn = cell.borrow();
         let run = future_worker_fn
             .as_ref()
             .expect("Tried to use a FutureWorker which was not registered.")
             .function;
 
-        run(&request.request_data)
+        run(msg)
     };
 
     let response = future.await;
-    worker_scope
-        .post_message(&response)
-        .expect("failed to post message for FutureWorker");
+    response.post_from_worker(&worker_scope);
 }

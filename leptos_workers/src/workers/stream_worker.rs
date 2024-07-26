@@ -1,10 +1,10 @@
-use crate::codec;
 use crate::workers::web_worker::WebWorker;
 use futures::stream::LocalBoxStream;
 use futures::StreamExt;
-use std::cell::RefCell;
 use std::sync::Mutex;
 use wasm_bindgen::prelude::*;
+
+use super::{TransferableMessage, TransferableMessageType};
 
 /// Takes a single request but can reply with multiple responses.
 ///
@@ -22,7 +22,7 @@ pub trait StreamWorker: WebWorker {
 #[doc(hidden)]
 pub struct StreamWorkerFn {
     pub(crate) path: &'static str,
-    pub(crate) function: fn(&Vec<u8>) -> LocalBoxStream<'static, JsValue>,
+    pub(crate) function: fn(TransferableMessage) -> LocalBoxStream<'static, TransferableMessage>,
 }
 
 impl StreamWorkerFn {
@@ -32,9 +32,9 @@ impl StreamWorkerFn {
         Self {
             path: W::path(),
             function: move |request| {
-                let request = codec::from_slice(&request[..]).expect("byte deserialization error");
-                Box::pin(W::stream(request).map(|response| {
-                    serde_wasm_bindgen::to_value(&response).expect("js serialization error")
+                let request_data = request.into_inner();
+                Box::pin(W::stream(request_data).map(|response| {
+                    TransferableMessage::new(TransferableMessageType::Response, response)
                 }))
             },
         }
@@ -54,14 +54,12 @@ mod private {
 
         let worker_scope: DedicatedWorkerGlobalScope = JsValue::from(global()).into();
         if worker_scope.name() == stream_worker.path {
-            let cell = STREAM_WORKER_FN
+            let mut opt = STREAM_WORKER_FN
                 .lock()
                 .expect("failed to lock STREAM_WORKER_FN");
-            let mut opt = cell.borrow_mut();
             *opt = Some(stream_worker.clone());
         }
     }
 }
 
-pub(crate) static STREAM_WORKER_FN: Mutex<RefCell<Option<StreamWorkerFn>>> =
-    Mutex::new(RefCell::new(None));
+pub(crate) static STREAM_WORKER_FN: Mutex<Option<StreamWorkerFn>> = Mutex::new(None);

@@ -1,9 +1,9 @@
-use crate::codec;
 use crate::workers::web_worker::WebWorker;
 use futures::future::LocalBoxFuture;
-use std::cell::RefCell;
 use std::sync::Mutex;
 use wasm_bindgen::prelude::*;
+
+use super::{TransferableMessage, TransferableMessageType};
 
 /// Takes a single request and responds with a single response.
 /// Technically, the implementation doesn't even have to be asynchronous - but when executed
@@ -20,7 +20,7 @@ pub trait FutureWorker: WebWorker {
 #[doc(hidden)]
 pub struct FutureWorkerFn {
     pub(crate) path: &'static str,
-    pub(crate) function: fn(&Vec<u8>) -> LocalBoxFuture<'static, JsValue>,
+    pub(crate) function: fn(TransferableMessage) -> LocalBoxFuture<'static, TransferableMessage>,
 }
 
 impl FutureWorkerFn {
@@ -30,10 +30,10 @@ impl FutureWorkerFn {
         Self {
             path: W::path(),
             function: move |request| {
-                let request = codec::from_slice(&request[..]).expect("byte deserialization error");
+                let request_data = request.into_inner();
                 Box::pin(async move {
-                    let response = W::run(request).await;
-                    serde_wasm_bindgen::to_value(&response).expect("js serialization error")
+                    let response = W::run(request_data).await;
+                    TransferableMessage::new(TransferableMessageType::Response, response)
                 })
             },
         }
@@ -53,14 +53,12 @@ mod private {
 
         let worker_scope: DedicatedWorkerGlobalScope = JsValue::from(global()).into();
         if worker_scope.name() == future_worker.path {
-            let cell = FUTURE_WORKER_FN
+            let mut opt = FUTURE_WORKER_FN
                 .lock()
                 .expect("failed to lock FUTURE_WORKER_FN");
-            let mut opt = cell.borrow_mut();
             *opt = Some(future_worker.clone());
         }
     }
 }
 
-pub(crate) static FUTURE_WORKER_FN: Mutex<RefCell<Option<FutureWorkerFn>>> =
-    Mutex::new(RefCell::new(None));
+pub(crate) static FUTURE_WORKER_FN: Mutex<Option<FutureWorkerFn>> = Mutex::new(None);

@@ -3,8 +3,8 @@ use serde::Serialize;
 
 #[doc(hidden)]
 pub trait WebWorker: WebWorkerPath + Clone + 'static {
-    type Request: Clone + Serialize + DeserializeOwned + Send;
-    type Response: Clone + Serialize + DeserializeOwned + Send;
+    type Request: Clone + Serialize + DeserializeOwned;
+    type Response: Clone + Serialize + DeserializeOwned;
 }
 
 #[doc(hidden)]
