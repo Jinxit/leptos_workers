@@ -1,10 +1,9 @@
-use crate::codec;
-use crate::plumbing::{create_worker, CreateWorkerError, WorkerRequest, WorkerRequestType};
-use crate::workers::CallbackWorker;
-use crate::workers::ChannelWorker;
+use crate::plumbing::{create_worker, CreateWorkerError};
 use crate::workers::FutureWorker;
 use crate::workers::StreamWorker;
 use crate::workers::WebWorker;
+use crate::workers::{CallbackWorker, TransferableMessage};
+use crate::workers::{ChannelWorker, TransferableMessageType};
 use alloc::rc::Rc;
 use futures::{FutureExt, Stream, StreamExt};
 use std::cell::RefCell;
@@ -40,28 +39,21 @@ impl<W: FutureWorker> WorkerHandle<W> {
 
         let tx = Rc::new(RefCell::new(Some(tx)));
         let closure: Closure<dyn FnMut(MessageEvent)> = Closure::new(move |event: MessageEvent| {
-            let data = event.data();
-            let response = serde_wasm_bindgen::from_value::<W::Response>(data)
-                .expect("js deserialization error");
+            let response = TransferableMessage::decode(&event);
+            let response_data = response.into_inner();
             let _ = tx
                 .borrow_mut()
                 .as_ref()
                 .expect("failed to acquire mutable borrow")
-                .send(response);
+                .send(response_data);
             tx.take();
         });
         {
             self.worker
                 .set_onmessage(Some(closure.as_ref().unchecked_ref()));
-            let request = WorkerRequest {
-                request_type: WorkerRequestType::Future,
-                request_data: codec::to_vec(request).expect("byte serialization error"),
-            };
-            self.worker
-                .post_message(
-                    &serde_wasm_bindgen::to_value(&request).expect("js serialization error"),
-                )
-                .expect("post message to FutureWorker");
+
+            TransferableMessage::new(TransferableMessageType::ReqFuture, request)
+                .post_to_worker(&self.worker);
         }
 
         rx.into_recv_async()
@@ -76,31 +68,24 @@ impl<W: StreamWorker> WorkerHandle<W> {
 
         let tx = Rc::new(RefCell::new(Some(tx)));
         let closure: Closure<dyn FnMut(MessageEvent)> = Closure::new(move |event: MessageEvent| {
-            let data = event.data();
-            if data.is_null() {
+            let response = TransferableMessage::decode(&event);
+            if response.is_null() {
                 tx.take();
             } else {
-                let response =
-                    serde_wasm_bindgen::from_value(data).expect("js deserialization error");
+                let response_data = response.into_inner();
                 if let Some(tx) = tx.borrow().as_ref() {
                     // this will error if the stream is dropped on the receiver side
                     // that's ok, however we have no choice but to keep going
-                    let _ = tx.send(response);
+                    let _ = tx.send(response_data);
                 }
             }
         });
         {
             self.worker
                 .set_onmessage(Some(closure.as_ref().unchecked_ref()));
-            let request = WorkerRequest {
-                request_type: WorkerRequestType::Stream,
-                request_data: codec::to_vec(request).expect("byte serialization error"),
-            };
-            self.worker
-                .post_message(
-                    &serde_wasm_bindgen::to_value(&request).expect("js serialization error"),
-                )
-                .expect("post message to StreamWorker");
+
+            TransferableMessage::new(TransferableMessageType::ReqStream, request)
+                .post_to_worker(&self.worker);
         }
 
         // this sentinel makes sure we drop the closure only after the stream is done
@@ -121,29 +106,22 @@ impl<W: CallbackWorker> WorkerHandle<W> {
     ) {
         let (tx, rx) = flume::bounded::<()>(1);
         let closure: Closure<dyn FnMut(MessageEvent)> = Closure::new(move |event: MessageEvent| {
-            let data = event.data();
-            if event.data().is_null() {
+            let response = TransferableMessage::decode(&event);
+            if response.is_null() {
                 if let Err(e) = tx.send(()) {
                     warn!("Couldn't send data in stream_callback. Was the promise dropped? {e:?}");
                 }
             } else {
-                let response: W::Response =
-                    serde_wasm_bindgen::from_value(data).expect("js deserialization error");
-                callback(response);
+                let response_data: W::Response = response.into_inner();
+                callback(response_data);
             }
         });
         {
             self.worker
                 .set_onmessage(Some(closure.into_js_value().as_ref().unchecked_ref()));
-            let request = WorkerRequest {
-                request_type: WorkerRequestType::Callback,
-                request_data: codec::to_vec(request).expect("byte serialization error"),
-            };
-            self.worker
-                .post_message(
-                    &serde_wasm_bindgen::to_value(&request).expect("js serialization error"),
-                )
-                .expect("post message to StreamWorker");
+
+            TransferableMessage::new(TransferableMessageType::ReqCallback, request)
+                .post_to_worker(&self.worker);
         }
         let _ = rx.into_recv_async().await;
     }
@@ -155,16 +133,15 @@ impl<W: ChannelWorker> WorkerHandle<W> {
         let (response_tx, response_rx) = flume::unbounded::<W::Response>();
         let response_tx = Rc::new(RefCell::new(Some(response_tx)));
         let closure: Closure<dyn FnMut(MessageEvent)> = Closure::new(move |event: MessageEvent| {
-            let data = event.data();
-            if event.data().is_null() {
+            let response = TransferableMessage::decode(&event);
+            if response.is_null() {
                 *response_tx.borrow_mut() = None;
             } else {
-                let response: W::Response =
-                    serde_wasm_bindgen::from_value(data).expect("js deserialization error");
+                let response_data: W::Response = response.into_inner();
                 // this will error if the stream is dropped on the receiver side
                 // that's ok, however we have no choice but to keep going
                 if let Some(response_tx) = response_tx.borrow().as_ref() {
-                    let _ = response_tx.send(response);
+                    let _ = response_tx.send(response_data);
                 }
             }
         });
@@ -172,25 +149,11 @@ impl<W: ChannelWorker> WorkerHandle<W> {
         worker.set_onmessage(Some(closure.into_js_value().as_ref().unchecked_ref()));
         spawn_local(async move {
             while let Ok(request) = request_rx.recv_async().await {
-                let request = WorkerRequest {
-                    request_type: WorkerRequestType::Channel,
-                    request_data: codec::to_vec(&request).expect("byte serialization error"),
-                };
-                worker
-                    .post_message(
-                        &serde_wasm_bindgen::to_value(&request).expect("js serialization error"),
-                    )
-                    .expect("post message to ChannelWorker");
+                TransferableMessage::new(TransferableMessageType::ReqChannel, request)
+                    .post_to_worker(&worker);
             }
-            worker
-                .post_message(
-                    &serde_wasm_bindgen::to_value(&WorkerRequest {
-                        request_type: WorkerRequestType::Channel,
-                        request_data: vec![],
-                    })
-                    .expect("js serialization error"),
-                )
-                .expect("post message to ChannelWorker");
+            TransferableMessage::new_null(TransferableMessageType::ReqChannel)
+                .post_to_worker(&worker);
         });
         (request_tx, response_rx)
     }

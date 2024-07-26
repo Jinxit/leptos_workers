@@ -20,10 +20,11 @@
 //! For support, check out the #libraries channel on the official [Leptos Discord Channel](https://discord.gg/v38Eef6sWG).
 //! Feel free to ping @Jinxit.
 
-mod codec;
 pub mod executors;
 mod plumbing;
 pub mod workers;
+
+pub use workers::Transferable;
 
 /// The main macro powering worker functions.
 ///
@@ -35,7 +36,7 @@ pub mod workers;
 ///
 /// Worker functions come in four flavours. Common to all are the following requirements:
 ///
-/// - The Request and Response types must implement `Clone`, `Send`, [`Serialize`](https://docs.rs/serde/latest/serde/trait.Serialize.html)
+/// - The Request and Response types must implement `Clone`, [`Serialize`](https://docs.rs/serde/latest/serde/trait.Serialize.html)
 ///   and [`DeserializeOwned`](https://docs.rs/serde/latest/serde/de/trait.DeserializeOwned.html).
 ///
 /// The different flavours all have slightly different usage scenarios:

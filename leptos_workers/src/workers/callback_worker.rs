@@ -1,12 +1,12 @@
-use crate::codec;
 use crate::workers::web_worker::WebWorker;
 use alloc::rc::Rc;
 use futures::future::LocalBoxFuture;
-use std::cell::RefCell;
 use std::sync::Mutex;
 use wasm_bindgen::prelude::wasm_bindgen;
 use wasm_bindgen::JsValue;
 use wasm_bindgen_futures::future_to_promise;
+
+use super::{TransferableMessage, TransferableMessageType};
 
 /// Takes a single requests and can return a stream of responses using the provided callback.
 ///
@@ -24,7 +24,7 @@ pub trait CallbackWorker: WebWorker {
 #[doc(hidden)]
 pub struct CallbackWorkerFn {
     pub(crate) path: &'static str,
-    pub(crate) function: fn(&Vec<u8>, Box<dyn Fn(JsValue)>),
+    pub(crate) function: fn(TransferableMessage, Box<dyn Fn(TransferableMessage)>),
 }
 
 impl CallbackWorkerFn {
@@ -36,18 +36,21 @@ impl CallbackWorkerFn {
             function: move |request, callback| {
                 let callback = Rc::new(callback);
                 let callback2 = callback.clone();
-                let request = codec::from_slice(&request[..]).expect("byte deserialization error");
+                let request_data = request.into_inner();
                 let _ = future_to_promise(async move {
                     (W::stream_callback(
-                        request,
+                        request_data,
                         Box::new(move |response| {
-                            let value = serde_wasm_bindgen::to_value(&response)
-                                .expect("js serialization error");
-                            callback(value);
+                            callback(TransferableMessage::new(
+                                TransferableMessageType::Response,
+                                response,
+                            ));
                         }),
                     ))
                     .await;
-                    callback2(JsValue::NULL);
+                    callback2(TransferableMessage::new_null(
+                        TransferableMessageType::Response,
+                    ));
                     Ok(JsValue::undefined())
                 });
             },
@@ -68,14 +71,12 @@ mod private {
 
         let worker_scope: DedicatedWorkerGlobalScope = JsValue::from(global()).into();
         if worker_scope.name() == callback_worker.path {
-            let cell = CALLBACK_WORKER_FN
+            let mut opt = CALLBACK_WORKER_FN
                 .lock()
                 .expect("failed to lock CALLBACK_WORKER_FN");
-            let mut opt = cell.borrow_mut();
             *opt = Some(callback_worker.clone());
         }
     }
 }
 
-pub(crate) static CALLBACK_WORKER_FN: Mutex<RefCell<Option<CallbackWorkerFn>>> =
-    Mutex::new(RefCell::new(None));
+pub(crate) static CALLBACK_WORKER_FN: Mutex<Option<CallbackWorkerFn>> = Mutex::new(None);
