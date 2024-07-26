@@ -55,7 +55,7 @@ pub fn init_workers() {
                 on_message_channel_worker(msg);
             }
             TransferableMessageType::Response => {
-                panic!("Wasn't expecting a response here");
+                // Never received this side.
             }
         }
     });
@@ -78,7 +78,7 @@ fn on_message_channel_worker(msg: TransferableMessage) {
                 response.post_from_worker(&worker_scope);
             }),
         );
-    })
+    });
 }
 
 fn on_message_callback_worker(worker_scope: DedicatedWorkerGlobalScope, msg: TransferableMessage) {
@@ -115,10 +115,9 @@ async fn on_message_stream_worker(
     };
 
     while let Some(response) = stream.next().await {
-        response.post_from_worker(&worker_scope);
+        response.post_from_worker(worker_scope);
     }
-    TransferableMessage::new_null(TransferableMessageType::Response)
-        .post_from_worker(&worker_scope);
+    TransferableMessage::new_null(TransferableMessageType::Response).post_from_worker(worker_scope);
 }
 
 async fn on_message_future_worker(
@@ -138,5 +137,5 @@ async fn on_message_future_worker(
     };
 
     let response = future.await;
-    response.post_from_worker(&worker_scope);
+    response.post_from_worker(worker_scope);
 }

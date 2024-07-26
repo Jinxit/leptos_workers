@@ -31,12 +31,7 @@ impl<T: TransferableType> Transferable<T> {
     pub async fn new(value: T) -> Self {
         Self {
             id: transferrable_id(),
-            underlying_transfer_object: Some(
-                value
-                    .underlying_transfer_object()
-                    .await
-                    .expect("Failed to get underlying transfer object."),
-            ),
+            underlying_transfer_object: Some(value.underlying_transfer_object().await),
             value,
         }
     }
@@ -54,18 +49,18 @@ pub trait TransferableType:
 {
     #[allow(async_fn_in_trait)]
     /// Extract the underlying object that needs to be passed separately during the postMessage call.
-    async fn underlying_transfer_object(&self) -> Result<JsValue, JsValue>;
+    async fn underlying_transfer_object(&self) -> JsValue;
 }
 
 impl TransferableType for js_sys::ArrayBuffer {
-    async fn underlying_transfer_object(&self) -> Result<JsValue, JsValue> {
-        Ok(self.into())
+    async fn underlying_transfer_object(&self) -> JsValue {
+        self.into()
     }
 }
 
 impl TransferableType for js_sys::Uint8Array {
-    async fn underlying_transfer_object(&self) -> Result<JsValue, JsValue> {
-        Ok(self.buffer().into())
+    async fn underlying_transfer_object(&self) -> JsValue {
+        self.buffer().into()
     }
 }
 
@@ -234,7 +229,7 @@ impl TransferableMessage {
             serde_wasm_bindgen::from_value(self.data).expect("Failed to deserialize message data.");
 
         // Take the store to prevent holding global references to this store.
-        let _ = TRANSFER_STORE_DESERIALIZATION.with_borrow_mut(|store| {
+        TRANSFER_STORE_DESERIALIZATION.with_borrow_mut(|store| {
             std::mem::take(store);
         });
 

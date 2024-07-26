@@ -76,7 +76,7 @@ impl ChannelWorkerFn {
             }));
         }));
 
-        let initialized = AtomicBool::new(false);
+        let already_initialized = AtomicBool::new(false);
         Self {
             path: W::path(),
             function: Arc::new(move |request, new_callback| {
@@ -88,17 +88,20 @@ impl ChannelWorkerFn {
                 {
                     *callback.lock().expect("mutex should not be poisoned") = Some(new_callback);
 
-                    // On first call, the message will contain the init data that can be used to start the worker fn.
-                    if !initialized.swap(true, std::sync::atomic::Ordering::Relaxed) {
+                    if already_initialized.swap(true, std::sync::atomic::Ordering::Relaxed) {
+                        let request_data = request.into_inner();
+                        // this will error when the receiver is dropped
+                        let _ = request_tx.send(request_data);
+                    } else {
+                        // On first call, the message will contain the init data that can be used to start the worker fn.
                         (initializer
                             .lock()
                             .expect("mutex should not be poisoned")
                             .take()
-                            .unwrap())(&callback, request.into_inner());
-                    } else {
-                        let request_data = request.into_inner();
-                        // this will error when the receiver is dropped
-                        let _ = request_tx.send(request_data);
+                            .expect("Initializer shouldn't have been taken yet."))(
+                            &callback,
+                            request.into_inner(),
+                        );
                     }
                 }
             }),
@@ -128,5 +131,5 @@ mod private {
 }
 
 thread_local! {
-    pub(crate) static CHANNEL_WORKER_FN: RefCell<Option<ChannelWorkerFn>> = RefCell::new(None);
+    pub(crate) static CHANNEL_WORKER_FN: RefCell<Option<ChannelWorkerFn>> = const { RefCell::new(None) };
 }
