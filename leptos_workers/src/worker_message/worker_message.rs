@@ -1,7 +1,7 @@
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use wasm_bindgen::{JsCast, JsValue};
 
-use super::transferable::{deserialize_from_worker_msg, serialize_to_worker_msg};
+use super::transferable::serialize_to_worker_msg;
 
 #[derive(Debug, Copy, Clone, Serialize, Deserialize)]
 pub(crate) enum WorkerMsgType {
@@ -16,10 +16,6 @@ pub(crate) enum WorkerMsgType {
 pub(crate) struct WorkerMsg {
     /// The arbitrary data that was serialized, which could have had transferables, which will have been extracted.
     data: JsValue,
-    /// The extracted exact transferables that might've been in the data and replaced with serializable values.
-    /// Mapped by key for easy lookup.
-    /// E.g. Uint8Array
-    transferables: js_sys::Object,
     /// The transferable objects that must be passed separately.
     /// E.g. The ArrayBuffer backing a Uint8Array
     /// Option just because same object used on receival side, where these don't exist.
@@ -40,13 +36,11 @@ impl WorkerMsg {
     /// Underlying fn to construct a new message on the sender side.
     pub fn construct(
         data: JsValue,
-        transferables: js_sys::Object,
         underlying_transferables: js_sys::Array,
         msg_type: WorkerMsgType,
     ) -> Self {
         Self {
             data,
-            transferables,
             underlying_transferables: Some(underlying_transferables),
             msg_type,
         }
@@ -56,7 +50,6 @@ impl WorkerMsg {
     pub fn new_null(msg_type: WorkerMsgType) -> Self {
         Self {
             data: JsValue::NULL,
-            transferables: js_sys::Object::new(),
             underlying_transferables: Some(js_sys::Array::new()),
             msg_type,
         }
@@ -72,14 +65,13 @@ impl WorkerMsg {
     }
 
     fn post_inner(self) -> (js_sys::Array, js_sys::Array) {
-        // Store top-level objects as [serialized type, data, transferables] (underlying_transferables passed separately if needed)
+        // Store top-level objects as [serialized type, data] (underlying_transferables passed separately if needed)
         let to_send = js_sys::Array::new();
         to_send.push(
             &serde_wasm_bindgen::to_value(&self.msg_type)
                 .expect("Failed to serialize message type."),
         );
         to_send.push(&self.data);
-        to_send.push(&self.transferables);
 
         let underlying_transferables = self
             .underlying_transferables
@@ -119,20 +111,15 @@ impl WorkerMsg {
             .expect("Failed to deserialize message type.");
         let data = type_data_and_transferables.get(1);
 
-        let transferables = type_data_and_transferables
-            .get(2)
-            .unchecked_into::<js_sys::Object>();
-
         Self {
             msg_type,
             data,
-            transferables,
             underlying_transferables: None,
         }
     }
 
-    /// Decode to the inner value, populating transferables and finishing up the transfer.
+    /// Decode to the inner value, finishing up the transfer.
     pub fn into_inner<T: DeserializeOwned>(self) -> T {
-        deserialize_from_worker_msg(self.transferables, self.data)
+        serde_wasm_bindgen::from_value(self.data).expect("Failed to deserialize message data.")
     }
 }
