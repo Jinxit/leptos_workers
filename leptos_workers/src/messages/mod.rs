@@ -1,3 +1,4 @@
+mod post_message;
 mod transferable;
 mod transferable_types;
 mod worker_message;

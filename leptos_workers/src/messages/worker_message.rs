@@ -2,6 +2,7 @@ use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use wasm_bindgen::{JsCast, JsValue};
 
 use super::transferable::serialize_to_worker_msg;
+use crate::messages::post_message::PostMessage;
 
 #[derive(Debug, Copy, Clone, Serialize, Deserialize)]
 pub(crate) enum WorkerMsgType {
@@ -14,11 +15,13 @@ pub(crate) enum WorkerMsgType {
 
 /// A message that is sent and received by workers.
 pub(crate) struct WorkerMsg {
-    /// The arbitrary data that was serialized, which could have had transferables, which will have been extracted.
+    /// The arbitrary data that was serialized, will contain the top-level transferable js objects.
     data: JsValue,
-    /// The transferable objects that must be passed separately.
-    /// E.g. The ArrayBuffer backing a Uint8Array
-    /// Option just because same object used on receival side, where these don't exist.
+    /// The underlying transferable objects that must be passed separately.
+    ///
+    /// E.g. The [`js_sys::ArrayBuffer`] backing a [`js_sys::Uint8Array`]
+    ///
+    /// Option just because the same object used on the receiving side, where these don't exist.    
     underlying_transferables: Option<js_sys::Array>,
     msg_type: WorkerMsgType,
 }
@@ -47,6 +50,7 @@ impl WorkerMsg {
     }
 
     /// Create a special message with null as the data.
+    /// This is used as a marker to signal the end of streams across the worker boundary.
     pub fn new_null(msg_type: WorkerMsgType) -> Self {
         Self {
             data: JsValue::NULL,
@@ -64,7 +68,8 @@ impl WorkerMsg {
         self.msg_type
     }
 
-    fn post_inner(self) -> (js_sys::Array, js_sys::Array) {
+    /// Post a message from one thread to another.
+    pub fn post(self, worker: &impl PostMessage) {
         // Store top-level objects as [serialized type, data] (underlying_transferables passed separately if needed)
         let to_send = js_sys::Array::new();
         to_send.push(
@@ -77,34 +82,14 @@ impl WorkerMsg {
             .underlying_transferables
             .expect("This WorkerMsg was decoded rather than prepared for sending, bug.");
 
-        (to_send, underlying_transferables)
-    }
-
-    /// Post a message to a worker.
-    pub fn post_to_worker(self, worker: &web_sys::Worker) {
-        let (to_send, underlying_transferables) = self.post_inner();
         if underlying_transferables.length() == 0 {
-            worker.post_message(&to_send).expect("post message failed");
+            worker.post_message(&to_send);
         } else {
-            worker
-                .post_message_with_transfer(&to_send, &underlying_transferables)
-                .expect("post message failed");
+            worker.post_message_with_transfer(&to_send, &underlying_transferables);
         }
     }
 
-    /// Post a message from a worker.
-    pub fn post_from_worker(self, worker: &web_sys::DedicatedWorkerGlobalScope) {
-        let (to_send, underlying_transferables) = self.post_inner();
-        if underlying_transferables.length() == 0 {
-            worker.post_message(&to_send).expect("post message failed");
-        } else {
-            worker
-                .post_message_with_transfer(&to_send, &underlying_transferables)
-                .expect("post message failed");
-        }
-    }
-
-    /// Decode a message on the receival side.
+    /// Decode a message on the receiving side.
     pub fn decode(value: JsValue) -> Self {
         let type_data_and_transferables = value.unchecked_into::<js_sys::Array>();
         let msg_type = serde_wasm_bindgen::from_value(type_data_and_transferables.get(0))

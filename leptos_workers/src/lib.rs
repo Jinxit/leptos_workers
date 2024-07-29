@@ -97,7 +97,7 @@ pub use messages::*;
 /// # use leptos_workers::worker;
 /// #[worker(MyChannelWorker)]
 /// /*pub?*/ /*async?*/ fn worker(
-///     init: MyInit, // The input to the worker, requires Clone + Serialize + DeserializeOwned like Request and Response
+///     init: MyInit, // The initialization input to the worker, requires Clone + Serialize + DeserializeOwned.
 ///     rx: leptos_workers::Receiver<MyRequest>,
 ///     tx: leptos_workers::Sender<MyResponse>
 /// )
