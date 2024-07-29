@@ -25,7 +25,7 @@ mod plumbing;
 mod worker_message;
 pub mod workers;
 
-pub use worker_message::Transferable;
+pub use worker_message::*;
 
 /// The main macro powering worker functions.
 ///
