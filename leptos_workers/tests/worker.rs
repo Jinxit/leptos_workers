@@ -28,6 +28,7 @@ pub async fn callback_worker_with_mut_arg(mut req: TestRequest, callback: impl F
     callback(TestResponse(req.0 * 2));
 }
 
+/// This one uses the init parameter.
 #[worker(TestChannelWorker)]
 pub async fn channel_worker(
     init: TestInit,
@@ -41,9 +42,9 @@ pub async fn channel_worker(
     }
 }
 
+/// This one has init param omitted.
 #[worker(TestChannelWorkerMut)]
 pub async fn channel_worker_with_mut_arg(
-    _init: TestInit,
     mut rx: leptos_workers::Receiver<TestRequest>,
     mut tx: leptos_workers::Sender<TestResponse>,
 ) {
