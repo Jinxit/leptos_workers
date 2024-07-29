@@ -1,9 +1,10 @@
-use crate::workers::web_worker::WebWorker;
+use crate::{
+    worker_message::{TransferableMessage, TransferableMessageType},
+    workers::web_worker::WebWorker,
+};
 use futures::future::LocalBoxFuture;
 use std::sync::Mutex;
 use wasm_bindgen::prelude::*;
-
-use super::{TransferableMessage, TransferableMessageType};
 
 /// Takes a single request and responds with a single response.
 /// Technically, the implementation doesn't even have to be asynchronous - but when executed

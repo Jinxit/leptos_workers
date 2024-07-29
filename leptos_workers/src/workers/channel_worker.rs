@@ -1,4 +1,7 @@
-use crate::workers::web_worker::WebWorker;
+use crate::{
+    worker_message::{TransferableMessage, TransferableMessageType},
+    workers::web_worker::WebWorker,
+};
 use futures::future::LocalBoxFuture;
 use serde::{de::DeserializeOwned, Serialize};
 use std::{
@@ -7,8 +10,6 @@ use std::{
 };
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::spawn_local;
-
-use super::{TransferableMessage, TransferableMessageType};
 
 /// Takes multiple requests and can reply with multiple responses using channels.
 ///

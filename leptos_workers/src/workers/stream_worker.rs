@@ -1,10 +1,9 @@
+use crate::worker_message::{TransferableMessage, TransferableMessageType};
 use crate::workers::web_worker::WebWorker;
 use futures::stream::LocalBoxStream;
 use futures::StreamExt;
 use std::sync::Mutex;
 use wasm_bindgen::prelude::*;
-
-use super::{TransferableMessage, TransferableMessageType};
 
 /// Takes a single request but can reply with multiple responses.
 ///

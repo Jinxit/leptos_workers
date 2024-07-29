@@ -1,9 +1,10 @@
 use crate::plumbing::{create_worker, CreateWorkerError};
+use crate::worker_message::{TransferableMessage, TransferableMessageType};
+use crate::workers::CallbackWorker;
+use crate::workers::ChannelWorker;
 use crate::workers::FutureWorker;
 use crate::workers::StreamWorker;
 use crate::workers::WebWorker;
-use crate::workers::{CallbackWorker, TransferableMessage};
-use crate::workers::{ChannelWorker, TransferableMessageType};
 use alloc::rc::Rc;
 use futures::{FutureExt, Stream, StreamExt};
 use std::cell::RefCell;
