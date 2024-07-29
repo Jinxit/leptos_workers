@@ -2,7 +2,6 @@ use std::{cell::RefCell, collections::HashMap, sync::atomic::AtomicU64};
 
 use serde::{de::DeserializeOwned, Deserialize, Deserializer, Serialize, Serializer};
 use wasm_bindgen::{JsCast, JsValue};
-use web_sys::MessageEvent;
 
 /// A wrapper for a zero-copy transferable object.
 /// This struct implements [`serde::Serialize`] and [`serde::Deserialize`],
@@ -11,7 +10,7 @@ use web_sys::MessageEvent;
 pub struct Transferable<T: TransferableType> {
     id: u64,
     value: T,
-    // Set on the sender side, but None on the decoding side.
+    // Set on the sender side, depending on the type might be None, always None on the decoding side.
     underlying_transfer_object: Option<JsValue>,
 }
 
@@ -31,7 +30,7 @@ impl<T: TransferableType> Transferable<T> {
     pub async fn new(value: T) -> Self {
         Self {
             id: transferrable_id(),
-            underlying_transfer_object: Some(value.underlying_transfer_object().await),
+            underlying_transfer_object: value.underlying_transfer_object().await,
             value,
         }
     }
@@ -45,28 +44,52 @@ impl<T: TransferableType> Transferable<T> {
 /// A trait for implementing the types that can be transferred.
 #[doc(hidden)]
 pub trait TransferableType:
-    std::fmt::Debug + Clone + From<JsValue> + Into<JsValue> + wasm_bindgen::JsCast
+    std::fmt::Debug + Clone
 {
     #[allow(async_fn_in_trait)]
     /// Extract the underlying object that needs to be passed separately during the postMessage call.
-    async fn underlying_transfer_object(&self) -> JsValue;
+    /// (if any)
+    async fn underlying_transfer_object(&self) -> Option<JsValue>;
+
+    /// Convert a generic js value back to the original type.
+    fn from_js_value(value: JsValue) -> Self;
+
+    /// Convert into a generic js value.
+    fn to_js_value(&self) -> JsValue;
+
 }
 
 impl TransferableType for js_sys::ArrayBuffer {
-    async fn underlying_transfer_object(&self) -> JsValue {
+    async fn underlying_transfer_object(&self) -> Option<JsValue> {
+        Some(self.into())
+    }
+    
+    fn from_js_value(value: JsValue) -> Self {
+        value.unchecked_into()
+    }
+    
+    fn to_js_value(&self) -> JsValue {
         self.into()
     }
 }
 
 impl TransferableType for js_sys::Uint8Array {
-    async fn underlying_transfer_object(&self) -> JsValue {
-        self.buffer().into()
+    async fn underlying_transfer_object(&self) -> Option<JsValue> {
+        Some(self.buffer().into())
+    }
+    
+    fn from_js_value(value: JsValue) -> Self {
+        value.unchecked_into()
+    }
+    
+    fn to_js_value(&self) -> JsValue {
+        self.into()
     }
 }
 
 thread_local! {
     /// Stores both the actual object, e.g. a file, and the transferable object, e.g. the array buffer.
-    static TRANSFER_STORE_SERIALIZATION: RefCell<HashMap<u64, (JsValue, JsValue)>> = RefCell::new(HashMap::new());
+    static TRANSFER_STORE_SERIALIZATION: RefCell<HashMap<u64, (JsValue, Option<JsValue>)>> = RefCell::new(HashMap::new());
 
     /// Just stores the actual object, the transferable object isn't referenced again.
     static TRANSFER_STORE_DESERIALIZATION: RefCell<js_sys::Object> = RefCell::new(js_sys::Object::new());
@@ -124,7 +147,9 @@ impl TransferableMessage {
                     js_sys::Reflect::set(&transferables, &id.into(), &value)
                         .expect("Failed to set value in object.");
 
-                    underlying_transferables.push(&underlying_transferable);
+                    if let Some(underlying_transferable) = underlying_transferable {
+                        underlying_transferables.push(&underlying_transferable);
+                    }
                 }
 
                 (transferables, underlying_transferables)
@@ -199,8 +224,8 @@ impl TransferableMessage {
     }
 
     /// Decode a message on the receival side.
-    pub fn decode(event: &MessageEvent) -> Self {
-        let type_data_and_transferables = event.data().unchecked_into::<js_sys::Array>();
+    pub fn decode(value: JsValue) -> Self {
+        let type_data_and_transferables = value.unchecked_into::<js_sys::Array>();
         let msg_type = serde_wasm_bindgen::from_value(type_data_and_transferables.get(0))
             .expect("Failed to deserialize message type.");
         let data = type_data_and_transferables.get(1);
@@ -247,10 +272,8 @@ impl<T: TransferableType> Serialize for Transferable<T> {
             store.insert(
                 self.id,
                 (
-                    self.value.clone().into(),
+                    self.value.to_js_value(),
                     self.underlying_transfer_object
-                        .clone()
-                        .expect("Underlying transfer object should be created on the sending side.")
                         .clone(),
                 ),
             );
@@ -271,9 +294,8 @@ impl<'de, T: TransferableType> Deserialize<'de> for Transferable<T> {
 
         // Will be initialised with the values on the deserialization side too:
         let value = TRANSFER_STORE_DESERIALIZATION.with_borrow_mut(|store| {
-            Ok(js_sys::Reflect::get(store, &id.into())
-                .expect("Transferable value not found.")
-                .unchecked_into::<T>())
+            Ok(T::from_js_value(js_sys::Reflect::get(store, &id.into())
+                .expect("Transferable value not found.")))
         })?;
 
         Ok(Self {

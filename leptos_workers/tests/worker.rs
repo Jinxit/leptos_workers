@@ -4,6 +4,7 @@ use gloo_timers::future::TimeoutFuture;
 use leptos_workers_macro::worker;
 use serde::{Deserialize, Serialize};
 use wasm_bindgen_test::*;
+use leptos_workers::Transferable;
 
 wasm_bindgen_test_configure!(run_in_browser);
 
@@ -210,4 +211,45 @@ async fn heavy_loop_is_interactive() {
 #[should_panic]
 fn should_panic_on_ssr() {
     pollster::block_on(async { future_worker(TestRequest(5)).await.unwrap() });
+}
+
+
+#[derive(Clone, Serialize, Deserialize)]
+struct TestTransferableMsg(Vec<Transferable<js_sys::Uint8Array>>);
+
+#[worker(TestTransferableWorker)]
+async fn worker_with_transferable_data(req: TestTransferableMsg) -> TestTransferableMsg {
+    test_transferable_vec(req.0.clone());
+    req
+}
+
+// Verify the test data: 10 items, each arr with 10 elements, all ordered by index:
+fn test_transferable_vec(vec: Vec<Transferable<js_sys::Uint8Array>>) {
+    assert_eq!(vec.len(), 10);
+    for (x, transferable) in vec.into_iter().enumerate() {
+        let arr = transferable.into_inner();
+        assert_eq!(arr.length(), 10);
+        for y in 0..10 {
+            assert_eq!(arr.get_index(y as u32), (x * 10 + y) as u8);
+        }
+    }
+}
+
+/// Test sending uint8 arrays to a worker and back without copying.
+#[cfg(not(feature = "ssr"))]
+#[wasm_bindgen_test]
+async fn transferable_test() {
+    // Test data, 10 items, each arr with 10 elements, all ordered by index:
+    let mut vec = Vec::new();
+    for x in 0..10 {
+        let uint8_array = js_sys::Uint8Array::new(&js_sys::ArrayBuffer::new(10));
+        for y in 0..10 {
+            uint8_array.set_index(y as u32, x * 10 + y);
+        }
+        vec.push(Transferable::new(uint8_array).await);
+    }
+    
+    test_transferable_vec(vec.clone());
+    let response_msg = worker_with_transferable_data(TestTransferableMsg(vec)).await.unwrap();
+    test_transferable_vec(response_msg.0);
 }
