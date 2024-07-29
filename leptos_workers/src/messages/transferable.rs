@@ -5,9 +5,53 @@ use wasm_bindgen::JsValue;
 
 use super::{transferable_types::TransferableType, WorkerMsg, WorkerMsgType};
 
-/// A wrapper for a zero-copy transferable object.
+/// A wrapper for a zero-copy transferable js objects.
+///
 /// This struct implements [`serde::Serialize`] and [`serde::Deserialize`],
-/// but with trickery that will only work internally for leptos_workers.
+/// [`Transferable`] objects should not be used outside the scope of leptos_workers.
+///
+/// During custom serialization, the underlying transferable object, e.g. the [`js_sys::ArrayBuffer`] backing a [`js_sys::Uint8Array`], will be extracted and passed as a second argument to post_message.
+///
+/// Only objects implementing the [`TransferableType`] trait can be used as the inner value.
+///
+/// If a js object doesn't need an underlying object passed separately as per the web spec, #[serde(with = "serde_wasm_bindgen::preserve")] should be used on the field instead.
+///
+/// Example:
+/// ```rust
+/// use leptos_workers::{Transferable, worker};
+///
+/// #[derive(Clone, serde::Serialize, serde::Deserialize)]
+/// struct MyWrapper {
+///    arr: Transferable<js_sys::Uint8Array>,
+/// }
+///
+/// #[worker]
+/// async fn worker_with_transferable_data(req: MyWrapper) -> MyWrapper {
+///     let arr = req.arr.into_inner();
+///
+///     // Can also send transferables in responses:
+///     MyWrapper {
+///       arr: Transferable::new(arr).await,    
+///     }
+/// }
+///
+/// async fn call_worker() {
+///     let uint8_array = js_sys::Uint8Array::new(&js_sys::ArrayBuffer::new(3));
+///     uint8_array.set_index(0, 1);
+///     uint8_array.set_index(1, 2);
+///     uint8_array.set_index(2, 3);
+///     
+///     let req = MyWrapper {
+///        arr: Transferable::new(uint8_array).await,
+///     };
+///
+///     worker_with_transferable_data(req).await;
+/// }
+///
+/// ```
+///
+/// Web docs:
+/// <https://developer.mozilla.org/en-US/docs/Web/API/Web_Workers_API/Transferable_objects>
 #[derive(Clone)]
 pub struct Transferable<T: TransferableType> {
     value: T,

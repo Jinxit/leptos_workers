@@ -53,7 +53,7 @@ impl<W: FutureWorker> WorkerHandle<W> {
             self.worker
                 .set_onmessage(Some(closure.as_ref().unchecked_ref()));
 
-            WorkerMsg::new(WorkerMsgType::ReqFuture, request).post_to_worker(&self.worker);
+            WorkerMsg::new(WorkerMsgType::ReqFuture, request).post(&self.worker);
         }
 
         rx.into_recv_async()
@@ -84,7 +84,7 @@ impl<W: StreamWorker> WorkerHandle<W> {
             self.worker
                 .set_onmessage(Some(closure.as_ref().unchecked_ref()));
 
-            WorkerMsg::new(WorkerMsgType::ReqStream, request).post_to_worker(&self.worker);
+            WorkerMsg::new(WorkerMsgType::ReqStream, request).post(&self.worker);
         }
 
         // this sentinel makes sure we drop the closure only after the stream is done
@@ -119,7 +119,7 @@ impl<W: CallbackWorker> WorkerHandle<W> {
             self.worker
                 .set_onmessage(Some(closure.into_js_value().as_ref().unchecked_ref()));
 
-            WorkerMsg::new(WorkerMsgType::ReqCallback, request).post_to_worker(&self.worker);
+            WorkerMsg::new(WorkerMsgType::ReqCallback, request).post(&self.worker);
         }
         let _ = rx.into_recv_async().await;
     }
@@ -131,7 +131,7 @@ impl<W: ChannelWorker> WorkerHandle<W> {
         init: W::Init,
     ) -> (flume::Sender<W::Request>, flume::Receiver<W::Response>) {
         // Send the init data through directly:
-        WorkerMsg::new(WorkerMsgType::ReqChannel, init).post_to_worker(&self.worker);
+        WorkerMsg::new(WorkerMsgType::ReqChannel, init).post(&self.worker);
 
         let (request_tx, request_rx) = flume::unbounded::<W::Request>();
         let (response_tx, response_rx) = flume::unbounded::<W::Response>();
@@ -153,9 +153,9 @@ impl<W: ChannelWorker> WorkerHandle<W> {
         worker.set_onmessage(Some(closure.into_js_value().as_ref().unchecked_ref()));
         spawn_local(async move {
             while let Ok(request) = request_rx.recv_async().await {
-                WorkerMsg::new(WorkerMsgType::ReqChannel, request).post_to_worker(&worker);
+                WorkerMsg::new(WorkerMsgType::ReqChannel, request).post(&worker);
             }
-            WorkerMsg::new_null(WorkerMsgType::ReqChannel).post_to_worker(&worker);
+            WorkerMsg::new_null(WorkerMsgType::ReqChannel).post(&worker);
         });
         (request_tx, response_rx)
     }

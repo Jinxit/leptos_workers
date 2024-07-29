@@ -77,7 +77,7 @@ fn on_message_channel_worker(msg: WorkerMsg) {
             msg,
             Box::new(move |response| {
                 let worker_scope: DedicatedWorkerGlobalScope = JsValue::from(global()).into();
-                response.post_from_worker(&worker_scope);
+                response.post(&worker_scope);
             }),
         );
     });
@@ -95,7 +95,7 @@ fn on_message_callback_worker(worker_scope: DedicatedWorkerGlobalScope, msg: Wor
     stream_callback(
         msg,
         Box::new(move |response| {
-            response.post_from_worker(&worker_scope);
+            response.post(&worker_scope);
         }),
     );
 }
@@ -114,9 +114,9 @@ async fn on_message_stream_worker(worker_scope: &DedicatedWorkerGlobalScope, msg
     };
 
     while let Some(response) = stream.next().await {
-        response.post_from_worker(worker_scope);
+        response.post(worker_scope);
     }
-    WorkerMsg::new_null(WorkerMsgType::Response).post_from_worker(worker_scope);
+    WorkerMsg::new_null(WorkerMsgType::Response).post(worker_scope);
 }
 
 async fn on_message_future_worker(worker_scope: &DedicatedWorkerGlobalScope, msg: WorkerMsg) {
@@ -133,5 +133,5 @@ async fn on_message_future_worker(worker_scope: &DedicatedWorkerGlobalScope, msg
     };
 
     let response = future.await;
-    response.post_from_worker(worker_scope);
+    response.post(worker_scope);
 }
