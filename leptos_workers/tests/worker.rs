@@ -43,8 +43,20 @@ pub async fn channel_worker(
 }
 
 /// This one has init param omitted.
+#[worker(TestChannelWorkerNoInit)]
+pub async fn channel_worker_no_init(
+    rx: leptos_workers::Receiver<TestRequest>,
+    tx: leptos_workers::Sender<TestResponse>,
+) {
+    while let Ok(req) = rx.recv_async().await {
+        tx.send_async(TestResponse(req.0 * 2)).await.unwrap();
+    }
+}
+
+/// Mutable args shouldn't break channel workers.
 #[worker(TestChannelWorkerMut)]
 pub async fn channel_worker_with_mut_arg(
+    mut init: TestInit,
     mut rx: leptos_workers::Receiver<TestRequest>,
     mut tx: leptos_workers::Sender<TestResponse>,
 ) {
@@ -122,6 +134,19 @@ async fn channel_worker_test() {
     use std::mem::drop;
 
     let (tx, rx) = channel_worker(TestInit(3)).unwrap();
+    tx.send_async(TestRequest(5)).await.unwrap();
+    tx.send_async(TestRequest(7)).await.unwrap();
+    let first = rx.recv_async().await.unwrap();
+    let second = rx.recv_async().await.unwrap();
+    assert_eq!(first.0, 10);
+    assert_eq!(second.0, 14);
+    drop(tx);
+    TimeoutFuture::new(1000).await;
+    let res = rx.try_recv();
+    assert_eq!(res, Err(TryRecvError::Disconnected));
+
+    // Check version with no init:
+    let (tx, rx) = channel_worker_no_init().unwrap();
     tx.send_async(TestRequest(5)).await.unwrap();
     tx.send_async(TestRequest(7)).await.unwrap();
     let first = rx.recv_async().await.unwrap();
