@@ -1,7 +1,6 @@
 #![allow(clippy::self_assignment)]
 
 use gloo_timers::future::TimeoutFuture;
-use leptos_workers::Transferable;
 use leptos_workers_macro::worker;
 use serde::{Deserialize, Serialize};
 use wasm_bindgen_test::*;
@@ -241,7 +240,10 @@ fn should_panic_on_ssr() {
 }
 
 #[derive(Clone, Serialize, Deserialize)]
-struct TestTransferableMsg(Vec<Transferable<js_sys::Uint8Array>>);
+struct JsArr(#[serde(with = "leptos_workers::transferable")] js_sys::Uint8Array);
+
+#[derive(Clone, Serialize, Deserialize)]
+struct TestTransferableMsg(Vec<JsArr>);
 
 #[cfg(not(feature = "ssr"))]
 #[worker(TestTransferableWorker)]
@@ -252,10 +254,10 @@ async fn worker_with_transferable_data(req: TestTransferableMsg) -> TestTransfer
 
 // Verify the test data: 10 items, each arr with 10 elements, all ordered by index:
 #[cfg(not(feature = "ssr"))]
-fn test_transferable_vec(vec: Vec<Transferable<js_sys::Uint8Array>>) {
+fn test_transferable_vec(vec: Vec<JsArr>) {
     assert_eq!(vec.len(), 10);
     for (x, transferable) in vec.into_iter().enumerate() {
-        let arr = transferable.into_inner();
+        let arr = transferable.0;
         assert_eq!(arr.length(), 10);
         for y in 0..10 {
             assert_eq!(arr.get_index(y as u32), (x * 10 + y) as u8);
@@ -275,7 +277,7 @@ async fn transferable_test() {
         for y in 0..10 {
             uint8_array.set_index(y as u32, x * 10 + y);
         }
-        vec.push(Transferable::new(uint8_array).await);
+        vec.push(JsArr(uint8_array));
     }
 
     test_transferable_vec(vec.clone());
