@@ -18,14 +18,9 @@ pub trait TransferableType: std::fmt::Debug + Clone {
     #[allow(async_fn_in_trait)]
     /// Extract the underlying object that needs to be passed separately during the postMessage call.
     ///
-    /// This might be None, if the object is a structured clone type rather than a transferable type.
-    ///
-    /// Structured clone docs:
-    /// https://developer.mozilla.org/en-US/docs/Web/API/Web_Workers_API/Structured_clone_algorithm
-    ///
     /// Transferable docs:
     /// https://developer.mozilla.org/en-US/docs/Web/API/Web_Workers_API/Transferable_objects
-    async fn underlying_transfer_object(&self) -> Option<JsValue>;
+    async fn underlying_transfer_object(&self) -> JsValue;
 
     /// Convert a generic js value back to the original type.
     fn from_js_value(value: JsValue) -> Self;
@@ -35,8 +30,8 @@ pub trait TransferableType: std::fmt::Debug + Clone {
 }
 
 impl TransferableType for js_sys::ArrayBuffer {
-    async fn underlying_transfer_object(&self) -> Option<JsValue> {
-        Some(self.into())
+    async fn underlying_transfer_object(&self) -> JsValue {
+        self.into()
     }
 
     fn from_js_value(value: JsValue) -> Self {
@@ -49,8 +44,8 @@ impl TransferableType for js_sys::ArrayBuffer {
 }
 
 impl TransferableType for js_sys::Uint8Array {
-    async fn underlying_transfer_object(&self) -> Option<JsValue> {
-        Some(self.buffer().into())
+    async fn underlying_transfer_object(&self) -> JsValue {
+        self.buffer().into()
     }
 
     fn from_js_value(value: JsValue) -> Self {

@@ -234,7 +234,8 @@ fn test_transferable_vec(vec: Vec<Transferable<js_sys::Uint8Array>>) {
     }
 }
 
-/// Test sending uint8 arrays to a worker and back without copying.
+/// Test sending uint8 arrays to a worker and back via transfer.
+/// The response uses the same transferable objects, checking re-use works too.
 #[cfg(not(feature = "ssr"))]
 #[wasm_bindgen_test]
 async fn transferable_test() {
