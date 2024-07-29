@@ -60,6 +60,7 @@ pub async fn channel_worker_with_mut_arg(
     mut rx: leptos_workers::Receiver<TestRequest>,
     mut tx: leptos_workers::Sender<TestResponse>,
 ) {
+    init.0 = 4;
     rx = rx;
     tx = tx;
     while let Ok(req) = rx.recv_async().await {

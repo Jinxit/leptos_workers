@@ -9,6 +9,7 @@ use syn::parse::{Parse, ParseStream};
 use syn::parse_quote;
 use syn::spanned::Spanned;
 use syn::Pat;
+use syn::PatIdent;
 use syn::{parse_quote_spanned, ItemFn, ItemImpl, ItemStruct, Stmt};
 
 pub struct Ir {
@@ -199,26 +200,49 @@ fn lower_impl_type_worker_channel(
     let thread_pool = thread_pool(model, &[]);
 
     // Init param is optional:
-    let (init_pat, init_type, init_sig): (Pat, syn::Type, TokenStream) =
-        if let Some((init_pat, init_type)) = init_pat_and_type {
-            (
-                init_pat.clone(),
-                init_type.clone(),
-                parse_quote!(#init_pat: #init_type),
-            )
+    let (init_value, init_type, ext_init_sig, inner_init_sig): (
+        Pat,
+        syn::Type,
+        TokenStream,
+        TokenStream,
+    ) = if let Some((init_pat, init_type)) = init_pat_and_type {
+        let init_pat_no_mut = Pat::Ident(if let Pat::Ident(ident) = init_pat {
+            PatIdent {
+                attrs: vec![],
+                by_ref: None,
+                mutability: None,
+                ident: ident.ident.clone(),
+                subpat: None,
+            }
         } else {
-            (parse_quote!(()), parse_quote!(()), parse_quote!())
-        };
+            abort!(init_pat, "unexpected pattern type")
+        });
+
+        (
+            init_pat_no_mut.clone(),
+            init_type.clone(),
+            // The external sig doesn't need mut if it's there, only the inner does:
+            parse_quote!(#init_pat_no_mut: #init_type),
+            parse_quote!(#init_pat: #init_type),
+        )
+    } else {
+        (
+            parse_quote!(()),
+            parse_quote!(()),
+            parse_quote!(),
+            parse_quote!(init: ()),
+        )
+    };
 
     let func = parse_quote_spanned!(worker_name.span()=>
         #(#function_attrs)*
-        #visibility fn #function_name(#init_sig) -> Result<(::leptos_workers::Sender<#request_type>, ::leptos_workers::Receiver<#response_type>), ::leptos_workers::CreateWorkerError> {
+        #visibility fn #function_name(#ext_init_sig) -> Result<(::leptos_workers::Sender<#request_type>, ::leptos_workers::Receiver<#response_type>), ::leptos_workers::CreateWorkerError> {
             #(#thread_pool)*
             let (_, tx, rx) = POOL
                 .with(move |pool| {
                     pool.as_ref()
                         .map_err(Clone::clone)
-                        .and_then(|pool| pool.channel(#init_pat))
+                        .and_then(|pool| pool.channel(#init_value))
                 })?;
             Ok((tx, rx))
         }
@@ -229,7 +253,7 @@ fn lower_impl_type_worker_channel(
             type Init = #init_type;
 
             #[allow(unused_variables)]
-            fn channel(init: #init_type, #receiver_pat: ::leptos_workers::Receiver<Self::Request>, #sender_pat: ::leptos_workers::Sender<Self::Response>) -> ::leptos_workers::LocalBoxFuture<'static, ()>  {
+            fn channel(#inner_init_sig, #receiver_pat: ::leptos_workers::Receiver<Self::Request>, #sender_pat: ::leptos_workers::Sender<Self::Response>) -> ::leptos_workers::LocalBoxFuture<'static, ()>  {
                 Box::pin(async move {
                     #(#function_body)*
                 })
