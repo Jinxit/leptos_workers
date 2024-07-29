@@ -29,9 +29,11 @@ impl<T: TransferableType> std::fmt::Debug for Transferable<T> {
 impl<T: TransferableType> Transferable<T> {
     /// Create a new transferable object.
     ///
-    /// Currently supports:
+    /// Currently natively supports:
     /// - [`js_sys::ArrayBuffer`]
     /// - [`js_sys::Uint8Array`]
+    /// 
+    /// Support can be added by implementing the [`TransferableType`] trait.
     pub async fn new(value: T) -> Self {
         Self {
             id: transferrable_id(),
