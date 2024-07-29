@@ -1,15 +1,7 @@
-use std::{cell::RefCell, collections::HashMap};
-
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use wasm_bindgen::{JsCast, JsValue};
 
-thread_local! {
-    /// Stores both the actual object, e.g. a file, and the transferable object, e.g. the array buffer.
-    pub(crate) static TRANSFER_STORE_SERIALIZATION: RefCell<HashMap<u64, (JsValue, Option<JsValue>)>> = RefCell::new(HashMap::new());
-
-    /// Just stores the actual object, the transferable object isn't referenced again.
-    pub(crate) static TRANSFER_STORE_DESERIALIZATION: RefCell<js_sys::Object> = RefCell::new(js_sys::Object::new());
-}
+use super::transferable::{deserialize_from_worker_msg, serialize_to_worker_msg};
 
 #[derive(Debug, Copy, Clone, Serialize, Deserialize)]
 pub(crate) enum WorkerMsgType {
@@ -41,38 +33,20 @@ impl WorkerMsg {
     /// Transferables are extracted during serialization, requiring some setup,
     /// therefore must be passed as a callback.
     pub fn new(msg_type: WorkerMsgType, data: impl Serialize) -> Self {
-        // The transfer store allows us to get access to all the transferables.
-        TRANSFER_STORE_SERIALIZATION.with_borrow_mut(|store| {
-            store.clear();
-        });
+        // Handing off to the transferable module to keep complex logic localised.
+        serialize_to_worker_msg(msg_type, data)
+    }
 
-        // THis will fill the TRANSFER_STORE_SERIALIZATION:
-        let serialized =
-            serde_wasm_bindgen::to_value(&data).expect("Failed to serialize message data.");
 
-        // Extract the TRANSFER_STORE_SERIALIZATION:
-        let (transferables, underlying_transferables) = TRANSFER_STORE_SERIALIZATION
-            .with_borrow_mut(|store| {
-                // Take it to prevent holding global references to this store.
-                let store = std::mem::take(store);
-
-                let transferables = js_sys::Object::new();
-                let underlying_transferables = js_sys::Array::new();
-
-                for (id, (value, underlying_transferable)) in store {
-                    js_sys::Reflect::set(&transferables, &id.into(), &value)
-                        .expect("Failed to set value in object.");
-
-                    if let Some(underlying_transferable) = underlying_transferable {
-                        underlying_transferables.push(&underlying_transferable);
-                    }
-                }
-
-                (transferables, underlying_transferables)
-            });
-
+    /// Underlying fn to construct a new message on the sender side. 
+    pub fn construct(
+        data: JsValue,
+        transferables: js_sys::Object,
+        underlying_transferables: js_sys::Array,
+        msg_type: WorkerMsgType,
+    ) -> Self {
         Self {
-            data: serialized,
+            data,
             transferables,
             underlying_transferables: Some(underlying_transferables),
             msg_type,
@@ -160,20 +134,6 @@ impl WorkerMsg {
 
     /// Decode to the inner value, populating transferables and finishing up the transfer.
     pub fn into_inner<T: DeserializeOwned>(self) -> T {
-        // Store them in the deserialization store:
-        TRANSFER_STORE_DESERIALIZATION.with_borrow_mut(move |store| {
-            *store = self.transferables;
-        });
-
-        // Now we've got the transferable values ready, can decode the actual data, transferables will be auto re-populated:
-        let decoded =
-            serde_wasm_bindgen::from_value(self.data).expect("Failed to deserialize message data.");
-
-        // Take the store to prevent holding global references to this store.
-        TRANSFER_STORE_DESERIALIZATION.with_borrow_mut(|store| {
-            std::mem::take(store);
-        });
-
-        decoded
+        deserialize_from_worker_msg(self.transferables, self.data)
     }
 }

@@ -1,12 +1,9 @@
-use std::sync::atomic::AtomicU64;
+use std::{cell::RefCell, collections::HashMap, sync::atomic::AtomicU64};
 
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use serde::{de::DeserializeOwned, Deserialize, Deserializer, Serialize, Serializer};
 use wasm_bindgen::JsValue;
 
-use super::{
-    transferable_types::TransferableType,
-    worker_message::{TRANSFER_STORE_DESERIALIZATION, TRANSFER_STORE_SERIALIZATION},
-};
+use super::{transferable_types::TransferableType, WorkerMsg, WorkerMsgType};
 
 /// A wrapper for a zero-copy transferable object.
 /// This struct implements [`serde::Serialize`] and [`serde::Deserialize`],
@@ -32,7 +29,7 @@ impl<T: TransferableType> Transferable<T> {
     /// Currently natively supports:
     /// - [`js_sys::ArrayBuffer`]
     /// - [`js_sys::Uint8Array`]
-    /// 
+    ///
     /// Support can be added by implementing the [`TransferableType`] trait.
     pub async fn new(value: T) -> Self {
         Self {
@@ -42,10 +39,88 @@ impl<T: TransferableType> Transferable<T> {
         }
     }
 
-    /// Consume the transferrable, returning the inner value.
+    /// Consume the transferable, returning the inner value.
     pub fn into_inner(self) -> T {
         self.value
     }
+}
+
+thread_local! {
+    /// Serialization "global" store.
+    /// Stores the top-level JS object, e.g. [`js_sys::Uint8Array`], 
+    /// and any (optional) underlying object, e.g. the [`js_sys::ArrayBuffer`],
+    /// the latter passed separately during the post message call.
+    /// 
+    /// [`https://developer.mozilla.org/en-US/docs/Web/API/Web_Workers_API/Transferable_objects`]
+    static TRANSFER_STORE_SERIALIZATION: RefCell<HashMap<u64, (JsValue, Option<JsValue>)>> = RefCell::new(HashMap::new());
+
+    /// Just stores the actual object, the transferable object isn't referenced again.
+    static TRANSFER_STORE_DESERIALIZATION: RefCell<js_sys::Object> = RefCell::new(js_sys::Object::new());
+}
+
+/// WARNING: DO NOT MAKE THIS FUNCTION ASYNC, IT WILL BREAK THE STORE. 
+/// The thread_local store relies on 2 things:
+/// - The fact serialization isn't multithreaded
+/// - The fact serialization isn't concurrent (async)
+/// 
+/// This fn serializes the data, extracting the transferable js objects in the process, 
+/// mapping them to unique ids in the serialized object.
+pub fn serialize_to_worker_msg(msg_type: WorkerMsgType, data: impl Serialize) -> WorkerMsg {
+    // The store should have been cleared with [`std::mem::take`] at the end of the last fn call, but just in case we'll clear it again:
+    TRANSFER_STORE_SERIALIZATION.with_borrow_mut(|store| {
+        store.clear();
+    });
+
+    // Serialize the data, the custom serialize trait for transferable will fill the store, replacing the values with just their unique ids:
+    let serialized =
+            serde_wasm_bindgen::to_value(&data).expect("Failed to serialize message data.");
+
+    // Extract the filled store.
+    let (transferables, underlying_transferables) = TRANSFER_STORE_SERIALIZATION
+    .with_borrow_mut(|store| {
+        // Take it to prevent holding global references to this store.
+        let store = std::mem::take(store);
+
+        let transferables = js_sys::Object::new();
+        let underlying_transferables = js_sys::Array::new();
+
+        for (id, (value, underlying_transferable)) in store {
+            js_sys::Reflect::set(&transferables, &id.into(), &value)
+                .expect("Failed to set value in object.");
+
+            if let Some(underlying_transferable) = underlying_transferable {
+                underlying_transferables.push(&underlying_transferable);
+            }
+        }
+
+        (transferables, underlying_transferables)
+    });
+
+    WorkerMsg::construct(serialized, transferables, underlying_transferables, msg_type)
+}
+
+/// WARNING: DO NOT MAKE THIS FUNCTION ASYNC, IT WILL BREAK THE STORE. 
+/// The thread_local store relies on 2 things:
+/// - The fact serialization isn't multithreaded
+/// - The fact serialization isn't concurrent (async)
+/// 
+/// This fn deserializes the data, injecting the transferable js objects in the process via the unique id mapping.
+pub fn deserialize_from_worker_msg<T: DeserializeOwned>(transferables: js_sys::Object, data: JsValue) -> T {
+    // Store them in the deserialization store for them to be read by the deserializer:
+    TRANSFER_STORE_DESERIALIZATION.with_borrow_mut(move |store| {
+        *store = transferables;
+    });
+
+    // Now we've got the transferable values ready, can decode the actual data, transferables will be auto re-populated:
+    let decoded =
+        serde_wasm_bindgen::from_value(data).expect("Failed to deserialize message data.");
+
+    // Take the store to prevent holding global references to this store.
+    TRANSFER_STORE_DESERIALIZATION.with_borrow_mut(|store| {
+        std::mem::take(store);
+    });
+
+    decoded
 }
 
 impl<T: TransferableType> Serialize for Transferable<T> {
