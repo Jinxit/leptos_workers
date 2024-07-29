@@ -118,38 +118,29 @@ thread_local! {
 /// This fn serializes the data, extracting the transferable js objects in the process,
 /// mapping them to unique ids in the serialized object.
 pub fn serialize_to_worker_msg(msg_type: WorkerMsgType, data: impl Serialize) -> WorkerMsg {
-    // The store should have been cleared with [`std::mem::take`] at the end of the last fn call, but just in case we'll clear it again:
+    // The store should have been cleared at the end of the last fn call, but just in case we'll clear it again:
     // We'll also extract the active store_id to use for assertion purposes.
-    let store_id = TRANSFER_STORE_SERIALIZATION.with_borrow_mut(|store| {
-        let new_store = SerStore::default();
-        let new_store_id = new_store.store_id;
-        let _ = std::mem::replace(store, new_store);
-        new_store_id
-    });
+    let new_store = SerStore::default();
+    let new_store_id = new_store.store_id;
+    TRANSFER_STORE_SERIALIZATION.replace(new_store);
 
     // Serialize the data, the custom serialize trait for transferable will fill the store.
     let serialized =
         serde_wasm_bindgen::to_value(&data).expect("Failed to serialize message data.");
 
     // Extract the filled store.
-    let underlying_transferables = TRANSFER_STORE_SERIALIZATION.with_borrow_mut(|store| {
-        // Take it to prevent holding global references to this store.
-        let store = std::mem::take(store);
+    let store = TRANSFER_STORE_SERIALIZATION.take();
 
-        // Assert the store wasn't corrupted:
-        assert_eq!(
-            store.store_id, store_id,
-            "Transfer store id mismatch. leptos_workers is internally broken."
-        );
+    // Assert the store wasn't corrupted:
+    assert_eq!(
+        store.store_id, new_store_id,
+        "Transfer store id mismatch. leptos_workers is internally broken."
+    );
 
-        let underlying_transferables = js_sys::Array::new();
-
-        for underlying_transferable in store.store {
-            underlying_transferables.push(&underlying_transferable);
-        }
-
-        underlying_transferables
-    });
+    let underlying_transferables = js_sys::Array::new();
+    for underlying_transferable in store.store {
+        underlying_transferables.push(&underlying_transferable);
+    }
 
     WorkerMsg::construct(serialized, underlying_transferables, msg_type)
 }
