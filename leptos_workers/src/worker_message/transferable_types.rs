@@ -17,13 +17,13 @@ use wasm_bindgen::{JsCast, JsValue};
 pub trait TransferableType: std::fmt::Debug + Clone {
     #[allow(async_fn_in_trait)]
     /// Extract the underlying object that needs to be passed separately during the postMessage call.
-    /// 
-    /// This might be None, if the object is a structured clone type rather than a transferable type. 
-    /// 
-    /// Structured clone docs: 
+    ///
+    /// This might be None, if the object is a structured clone type rather than a transferable type.
+    ///
+    /// Structured clone docs:
     /// https://developer.mozilla.org/en-US/docs/Web/API/Web_Workers_API/Structured_clone_algorithm
-    /// 
-    /// Transferable docs: 
+    ///
+    /// Transferable docs:
     /// https://developer.mozilla.org/en-US/docs/Web/API/Web_Workers_API/Transferable_objects
     async fn underlying_transfer_object(&self) -> Option<JsValue>;
 

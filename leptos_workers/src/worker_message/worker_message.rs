@@ -37,8 +37,7 @@ impl WorkerMsg {
         serialize_to_worker_msg(msg_type, data)
     }
 
-
-    /// Underlying fn to construct a new message on the sender side. 
+    /// Underlying fn to construct a new message on the sender side.
     pub fn construct(
         data: JsValue,
         transferables: js_sys::Object,
