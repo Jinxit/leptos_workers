@@ -1,28 +1,34 @@
 use wasm_bindgen::{JsCast, JsValue};
 
-/// A trait for implementing the types that can be transferred.
+/// A trait for implementing the types that can be transferred without copying.
 ///
-/// Some JS values can be sent to/from workers via structured cloning, others via transferables.
-/// This trait allows configuration of those js values that shouldn't be serialized with serde,
-/// but preserved as js.
+/// Some JS values can be transferred directly to other threads, but need some special handling.
+/// This trait allows configuration of those js values that must be passed separately during the postMessage call.
 ///
-/// Some [`js_sys`] types are implemented by leptos_workers internally,
-/// other's can be PR'd or wrapped in structs downstream in user code.
+/// All basic types supporting transfers mentioned in mozilla docs are built-in,
+/// along with the most common derivatives like [`js_sys::Uint8Array`]. types are implemented by leptos_workers internally,
 ///
-/// Structured clone spec:
-/// <https://developer.mozilla.org/en-US/docs/Web/API/Web_Workers_API/Structured_clone_algorithm>
+/// You can implement [`TransferableType`] for custom structs wrapping a js value, as long as the underlying transfer object can be created from the js value synchronously, see the trait implementation of [`js_sys::Uint8Array`] for an example.
 ///
-/// Transferable spec:
+/// Transferable mozilla spec:
 /// <https://developer.mozilla.org/en-US/docs/Web/API/Web_Workers_API/Transferable_objects#supported_objects>
+///
+/// Example:
+///
+/// ```rust
+/// struct MyTransferable {
+///   #[serde(with = "leptos_workers::transferable")]
+///   arr: js_sys::Uint8Array,
+/// }
+/// ```
 pub trait TransferableType: std::fmt::Debug + Clone {
-    #[allow(async_fn_in_trait)]
     /// Extract the underlying object that needs to be passed separately during the postMessage call.
     ///
-    /// Transferable docs:
+    /// Transferable mozilla spec:
     /// https://developer.mozilla.org/en-US/docs/Web/API/Web_Workers_API/Transferable_objects
-    async fn underlying_transfer_object(&self) -> JsValue;
+    fn underlying_transfer_object(&self) -> JsValue;
 
-    /// Convert a generic js value back to the original type.
+    /// Convert the type from a generic js value back to the specialized type.
     fn from_js_value(value: JsValue) -> Self;
 
     /// Convert into a generic js value.
@@ -30,7 +36,7 @@ pub trait TransferableType: std::fmt::Debug + Clone {
 }
 
 impl TransferableType for js_sys::ArrayBuffer {
-    async fn underlying_transfer_object(&self) -> JsValue {
+    fn underlying_transfer_object(&self) -> JsValue {
         self.into()
     }
 
@@ -44,7 +50,7 @@ impl TransferableType for js_sys::ArrayBuffer {
 }
 
 impl TransferableType for js_sys::Uint8Array {
-    async fn underlying_transfer_object(&self) -> JsValue {
+    fn underlying_transfer_object(&self) -> JsValue {
         self.buffer().into()
     }
 

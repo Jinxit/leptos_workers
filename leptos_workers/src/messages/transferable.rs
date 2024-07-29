@@ -1,90 +1,9 @@
 use std::{cell::RefCell, sync::atomic::AtomicU64};
 
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use serde::{Deserializer, Serialize, Serializer};
 use wasm_bindgen::JsValue;
 
 use super::{transferable_types::TransferableType, WorkerMsg, WorkerMsgType};
-
-/// A wrapper for a zero-copy transferable js objects.
-///
-/// This struct implements [`serde::Serialize`] and [`serde::Deserialize`],
-/// [`Transferable`] objects should not be used outside the scope of leptos_workers.
-///
-/// During custom serialization, the underlying transferable object, e.g. the [`js_sys::ArrayBuffer`] backing a [`js_sys::Uint8Array`], will be extracted and passed as a second argument to post_message.
-///
-/// Only objects implementing the [`TransferableType`] trait can be used as the inner value.
-///
-/// If a js object doesn't need an underlying object passed separately as per the web spec, #[serde(with = "serde_wasm_bindgen::preserve")] should be used on the field instead.
-///
-/// Example:
-/// ```rust
-/// use leptos_workers::{Transferable, worker};
-///
-/// #[derive(Clone, serde::Serialize, serde::Deserialize)]
-/// struct MyWrapper {
-///    arr: Transferable<js_sys::Uint8Array>,
-/// }
-///
-/// #[worker]
-/// async fn worker_with_transferable_data(req: MyWrapper) -> MyWrapper {
-///     let arr = req.arr.into_inner();
-///
-///     // Can also send transferables in responses:
-///     MyWrapper {
-///       arr: Transferable::new(arr).await,    
-///     }
-/// }
-///
-/// async fn call_worker() {
-///     let uint8_array = js_sys::Uint8Array::new(&js_sys::ArrayBuffer::new(3));
-///     uint8_array.set_index(0, 1);
-///     uint8_array.set_index(1, 2);
-///     uint8_array.set_index(2, 3);
-///     
-///     let req = MyWrapper {
-///        arr: Transferable::new(uint8_array).await,
-///     };
-///
-///     worker_with_transferable_data(req).await;
-/// }
-///
-/// ```
-///
-/// Web docs:
-/// <https://developer.mozilla.org/en-US/docs/Web/API/Web_Workers_API/Transferable_objects>
-#[derive(Clone)]
-pub struct Transferable<T: TransferableType> {
-    value: T,
-    underlying_transfer_object: JsValue,
-}
-
-/// Custom as just going to show as Transferable(self.value) in the debug output.
-impl<T: TransferableType> std::fmt::Debug for Transferable<T> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_tuple("Transferable").field(&self.value).finish()
-    }
-}
-
-impl<T: TransferableType> Transferable<T> {
-    /// Create a new transferable object.
-    ///
-    /// Currently natively supports:
-    /// - [`js_sys::ArrayBuffer`]
-    /// - [`js_sys::Uint8Array`]
-    ///
-    /// Support can be added by implementing the [`TransferableType`] trait.
-    pub async fn new(value: T) -> Self {
-        Self {
-            underlying_transfer_object: value.underlying_transfer_object().await,
-            value,
-        }
-    }
-
-    /// Consume the transferable, returning the inner value.
-    pub fn into_inner(self) -> T {
-        self.value
-    }
-}
 
 /// Serialization store for underlying transferable js object extraction.
 struct SerStore {
@@ -117,7 +36,7 @@ thread_local! {
 ///
 /// This fn serializes the data, extracting the transferable js objects in the process,
 /// mapping them to unique ids in the serialized object.
-pub fn serialize_to_worker_msg(msg_type: WorkerMsgType, data: impl Serialize) -> WorkerMsg {
+pub(crate) fn serialize_to_worker_msg(msg_type: WorkerMsgType, data: impl Serialize) -> WorkerMsg {
     // The store should have been cleared at the end of the last fn call, but just in case we'll clear it again:
     // We'll also extract the active store_id to use for assertion purposes.
     let new_store = SerStore::default();
@@ -145,43 +64,34 @@ pub fn serialize_to_worker_msg(msg_type: WorkerMsgType, data: impl Serialize) ->
     WorkerMsg::construct(serialized, underlying_transferables, msg_type)
 }
 
-/// The wrapper that actually gets serialized by serde_wasm_bindgen, after underlying transferables have been extracted.
-#[derive(Serialize, Deserialize)]
-struct JsWrapped {
-    #[serde(with = "serde_wasm_bindgen::preserve")]
-    value: JsValue,
-    #[serde(with = "serde_wasm_bindgen::preserve")]
-    underlying_transfer_object: JsValue,
+/// Used under the hood by `#[serde(with = "leptos_workers::transferable")]` to serialize transferable types.
+/// 
+/// # Errors
+/// 
+/// Will return `Err` if serde_wasm_bindgen errors.
+pub fn serialize<T: TransferableType, S>(data: &T, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    // Store the value in the temporary global store:
+    TRANSFER_STORE_SERIALIZATION.with_borrow_mut(|store| {
+        store.store.push(data.underlying_transfer_object());
+    });
+
+    serde_wasm_bindgen::preserve::serialize(&data.to_js_value(), serializer)
 }
 
-impl<T: TransferableType> Serialize for Transferable<T> {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        // Store the value in the temporary global store:
-        TRANSFER_STORE_SERIALIZATION.with_borrow_mut(|store| {
-            store.store.push(self.underlying_transfer_object.clone());
-        });
-        let wrapped = JsWrapped {
-            value: self.value.to_js_value(),
-            underlying_transfer_object: self.underlying_transfer_object.clone(),
-        };
-        wrapped.serialize(serializer)
-    }
-}
-
-impl<'de, T: TransferableType> Deserialize<'de> for Transferable<T> {
-    fn deserialize<D>(deserializer: D) -> Result<Transferable<T>, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let wrapped = JsWrapped::deserialize(deserializer)?;
-        Ok(Self {
-            value: T::from_js_value(wrapped.value),
-            underlying_transfer_object: wrapped.underlying_transfer_object,
-        })
-    }
+/// Used under the hood by `#[serde(with = "leptos_workers::transferable")]` to deserialize transferable types.
+/// 
+/// # Errors
+/// 
+/// Will return `Err` if serde_wasm_bindgen errors.
+pub fn deserialize<'de, T: TransferableType, D>(deserializer: D) -> Result<T, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let js_value = serde_wasm_bindgen::preserve::deserialize::<D, JsValue>(deserializer)?;
+    Ok(T::from_js_value(js_value))
 }
 
 /// Get a new unique id to use for assertions.
