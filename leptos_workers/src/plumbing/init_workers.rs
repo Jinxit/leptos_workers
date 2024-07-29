@@ -1,7 +1,9 @@
+use crate::worker_message::TransferableMessage;
+use crate::worker_message::TransferableMessageType;
+use crate::workers::CALLBACK_WORKER_FN;
 use crate::workers::CHANNEL_WORKER_FN;
 use crate::workers::FUTURE_WORKER_FN;
 use crate::workers::STREAM_WORKER_FN;
-use crate::workers::{TransferableMessage, TransferableMessageType, CALLBACK_WORKER_FN};
 use futures::StreamExt;
 use js_sys::global;
 use js_sys::Function;

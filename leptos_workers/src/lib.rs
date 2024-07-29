@@ -22,9 +22,10 @@
 
 pub mod executors;
 mod plumbing;
+mod worker_message;
 pub mod workers;
 
-pub use workers::Transferable;
+pub use worker_message::Transferable;
 
 /// The main macro powering worker functions.
 ///

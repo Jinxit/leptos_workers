@@ -1,3 +1,4 @@
+use crate::worker_message::{TransferableMessage, TransferableMessageType};
 use crate::workers::web_worker::WebWorker;
 use alloc::rc::Rc;
 use futures::future::LocalBoxFuture;
@@ -5,8 +6,6 @@ use std::sync::Mutex;
 use wasm_bindgen::prelude::wasm_bindgen;
 use wasm_bindgen::JsValue;
 use wasm_bindgen_futures::future_to_promise;
-
-use super::{TransferableMessage, TransferableMessageType};
 
 /// Takes a single requests and can return a stream of responses using the provided callback.
 ///

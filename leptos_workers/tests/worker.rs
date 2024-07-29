@@ -1,10 +1,10 @@
 #![allow(clippy::self_assignment)]
 
 use gloo_timers::future::TimeoutFuture;
+use leptos_workers::Transferable;
 use leptos_workers_macro::worker;
 use serde::{Deserialize, Serialize};
 use wasm_bindgen_test::*;
-use leptos_workers::Transferable;
 
 wasm_bindgen_test_configure!(run_in_browser);
 
@@ -213,7 +213,6 @@ fn should_panic_on_ssr() {
     pollster::block_on(async { future_worker(TestRequest(5)).await.unwrap() });
 }
 
-
 #[derive(Clone, Serialize, Deserialize)]
 struct TestTransferableMsg(Vec<Transferable<js_sys::Uint8Array>>);
 
@@ -248,8 +247,10 @@ async fn transferable_test() {
         }
         vec.push(Transferable::new(uint8_array).await);
     }
-    
+
     test_transferable_vec(vec.clone());
-    let response_msg = worker_with_transferable_data(TestTransferableMsg(vec)).await.unwrap();
+    let response_msg = worker_with_transferable_data(TestTransferableMsg(vec))
+        .await
+        .unwrap();
     test_transferable_vec(response_msg.0);
 }
