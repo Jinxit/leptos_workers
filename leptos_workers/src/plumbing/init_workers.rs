@@ -36,7 +36,7 @@ pub fn init_workers() {
     let onmessage: Closure<dyn FnMut(MessageEvent)> = Closure::new(move |event: MessageEvent| {
         let worker_scope: DedicatedWorkerGlobalScope = JsValue::from(global()).into();
 
-        let msg = TransferableMessage::decode(&event);
+        let msg = TransferableMessage::decode(event.data());
         match msg.message_type() {
             TransferableMessageType::ReqFuture => {
                 spawn_local(async move {

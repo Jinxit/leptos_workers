@@ -39,7 +39,7 @@ impl<W: FutureWorker> WorkerHandle<W> {
 
         let tx = Rc::new(RefCell::new(Some(tx)));
         let closure: Closure<dyn FnMut(MessageEvent)> = Closure::new(move |event: MessageEvent| {
-            let response = TransferableMessage::decode(&event);
+            let response = TransferableMessage::decode(event.data());
             let response_data = response.into_inner();
             let _ = tx
                 .borrow_mut()
@@ -68,7 +68,7 @@ impl<W: StreamWorker> WorkerHandle<W> {
 
         let tx = Rc::new(RefCell::new(Some(tx)));
         let closure: Closure<dyn FnMut(MessageEvent)> = Closure::new(move |event: MessageEvent| {
-            let response = TransferableMessage::decode(&event);
+            let response = TransferableMessage::decode(event.data());
             if response.is_null() {
                 tx.take();
             } else {
@@ -106,7 +106,7 @@ impl<W: CallbackWorker> WorkerHandle<W> {
     ) {
         let (tx, rx) = flume::bounded::<()>(1);
         let closure: Closure<dyn FnMut(MessageEvent)> = Closure::new(move |event: MessageEvent| {
-            let response = TransferableMessage::decode(&event);
+            let response = TransferableMessage::decode(event.data());
             if response.is_null() {
                 if let Err(e) = tx.send(()) {
                     warn!("Couldn't send data in stream_callback. Was the promise dropped? {e:?}");
@@ -140,7 +140,7 @@ impl<W: ChannelWorker> WorkerHandle<W> {
         let (response_tx, response_rx) = flume::unbounded::<W::Response>();
         let response_tx = Rc::new(RefCell::new(Some(response_tx)));
         let closure: Closure<dyn FnMut(MessageEvent)> = Closure::new(move |event: MessageEvent| {
-            let response = TransferableMessage::decode(&event);
+            let response = TransferableMessage::decode(event.data());
             if response.is_null() {
                 *response_tx.borrow_mut() = None;
             } else {
