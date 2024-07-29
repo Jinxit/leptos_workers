@@ -1,4 +1,4 @@
-use crate::worker_message::{WorkerMsg, WorkerMsgType};
+use crate::messages::{WorkerMsg, WorkerMsgType};
 use crate::workers::web_worker::WebWorker;
 use alloc::rc::Rc;
 use futures::future::LocalBoxFuture;

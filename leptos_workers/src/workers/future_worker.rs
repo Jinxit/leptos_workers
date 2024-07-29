@@ -1,5 +1,5 @@
 use crate::{
-    worker_message::{WorkerMsg, WorkerMsgType},
+    messages::{WorkerMsg, WorkerMsgType},
     workers::web_worker::WebWorker,
 };
 use futures::future::LocalBoxFuture;
