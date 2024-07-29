@@ -8,6 +8,9 @@ mod worker_message;
 /// Example:
 ///
 /// ```rust
+/// use serde::{Deserialize, Serialize};
+///
+/// #[derive(Serialize, Deserialize)]
 /// struct MyTransferable {
 ///   #[serde(with = "leptos_workers::transferable")]
 ///   arr: js_sys::Uint8Array,
