@@ -1,5 +1,5 @@
+use crate::messages::{WorkerMsg, WorkerMsgType};
 use crate::plumbing::{create_worker, CreateWorkerError};
-use crate::worker_message::{WorkerMsg, WorkerMsgType};
 use crate::workers::CallbackWorker;
 use crate::workers::ChannelWorker;
 use crate::workers::FutureWorker;

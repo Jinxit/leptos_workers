@@ -216,6 +216,7 @@ fn should_panic_on_ssr() {
 #[derive(Clone, Serialize, Deserialize)]
 struct TestTransferableMsg(Vec<Transferable<js_sys::Uint8Array>>);
 
+#[cfg(not(feature = "ssr"))]
 #[worker(TestTransferableWorker)]
 async fn worker_with_transferable_data(req: TestTransferableMsg) -> TestTransferableMsg {
     test_transferable_vec(req.0.clone());
@@ -223,6 +224,7 @@ async fn worker_with_transferable_data(req: TestTransferableMsg) -> TestTransfer
 }
 
 // Verify the test data: 10 items, each arr with 10 elements, all ordered by index:
+#[cfg(not(feature = "ssr"))]
 fn test_transferable_vec(vec: Vec<Transferable<js_sys::Uint8Array>>) {
     assert_eq!(vec.len(), 10);
     for (x, transferable) in vec.into_iter().enumerate() {

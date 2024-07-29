@@ -1,5 +1,5 @@
-use crate::worker_message::WorkerMsg;
-use crate::worker_message::WorkerMsgType;
+use crate::messages::WorkerMsg;
+use crate::messages::WorkerMsgType;
 use crate::workers::CALLBACK_WORKER_FN;
 use crate::workers::CHANNEL_WORKER_FN;
 use crate::workers::FUTURE_WORKER_FN;

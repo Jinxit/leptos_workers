@@ -21,11 +21,11 @@
 //! Feel free to ping @Jinxit.
 
 pub mod executors;
+mod messages;
 mod plumbing;
-mod worker_message;
 pub mod workers;
 
-pub use worker_message::*;
+pub use messages::*;
 
 /// The main macro powering worker functions.
 ///
