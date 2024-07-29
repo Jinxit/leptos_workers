@@ -12,7 +12,7 @@ thread_local! {
 }
 
 #[derive(Debug, Copy, Clone, Serialize, Deserialize)]
-pub(crate) enum TransferableMessageType {
+pub(crate) enum WorkerMsgType {
     ReqFuture,
     ReqStream,
     ReqCallback,
@@ -21,7 +21,7 @@ pub(crate) enum TransferableMessageType {
 }
 
 /// A message that is sent and received by workers.
-pub(crate) struct TransferableMessage {
+pub(crate) struct WorkerMsg {
     /// The arbitrary data that was serialized, which could have had transferables, which will have been extracted.
     data: JsValue,
     /// The extracted exact transferables that might've been in the data and replaced with serializable values.
@@ -32,15 +32,15 @@ pub(crate) struct TransferableMessage {
     /// E.g. The ArrayBuffer backing a Uint8Array
     /// Option just because same object used on receival side, where these don't exist.
     underlying_transferables: Option<js_sys::Array>,
-    msg_type: TransferableMessageType,
+    msg_type: WorkerMsgType,
 }
 
-impl TransferableMessage {
+impl WorkerMsg {
     /// Create a new message to send.
     ///
     /// Transferables are extracted during serialization, requiring some setup,
     /// therefore must be passed as a callback.
-    pub fn new(msg_type: TransferableMessageType, data: impl Serialize) -> Self {
+    pub fn new(msg_type: WorkerMsgType, data: impl Serialize) -> Self {
         // The transfer store allows us to get access to all the transferables.
         TRANSFER_STORE_SERIALIZATION.with_borrow_mut(|store| {
             store.clear();
@@ -80,7 +80,7 @@ impl TransferableMessage {
     }
 
     /// Create a special message with null as the data.
-    pub fn new_null(msg_type: TransferableMessageType) -> Self {
+    pub fn new_null(msg_type: WorkerMsgType) -> Self {
         Self {
             data: JsValue::NULL,
             transferables: js_sys::Object::new(),
@@ -94,7 +94,7 @@ impl TransferableMessage {
         self.data.is_null()
     }
 
-    pub fn message_type(&self) -> TransferableMessageType {
+    pub fn message_type(&self) -> WorkerMsgType {
         self.msg_type
     }
 
@@ -110,7 +110,7 @@ impl TransferableMessage {
 
         let underlying_transferables = self
             .underlying_transferables
-            .expect("This TransferableMessage was decoded rather than prepared for sending, bug.");
+            .expect("This WorkerMsg was decoded rather than prepared for sending, bug.");
 
         (to_send, underlying_transferables)
     }

@@ -1,4 +1,4 @@
-use crate::worker_message::{TransferableMessage, TransferableMessageType};
+use crate::worker_message::{WorkerMsg, WorkerMsgType};
 use crate::workers::web_worker::WebWorker;
 use alloc::rc::Rc;
 use futures::future::LocalBoxFuture;
@@ -23,7 +23,7 @@ pub trait CallbackWorker: WebWorker {
 #[doc(hidden)]
 pub struct CallbackWorkerFn {
     pub(crate) path: &'static str,
-    pub(crate) function: fn(TransferableMessage, Box<dyn Fn(TransferableMessage)>),
+    pub(crate) function: fn(WorkerMsg, Box<dyn Fn(WorkerMsg)>),
 }
 
 impl CallbackWorkerFn {
@@ -40,16 +40,11 @@ impl CallbackWorkerFn {
                     (W::stream_callback(
                         request_data,
                         Box::new(move |response| {
-                            callback(TransferableMessage::new(
-                                TransferableMessageType::Response,
-                                response,
-                            ));
+                            callback(WorkerMsg::new(WorkerMsgType::Response, response));
                         }),
                     ))
                     .await;
-                    callback2(TransferableMessage::new_null(
-                        TransferableMessageType::Response,
-                    ));
+                    callback2(WorkerMsg::new_null(WorkerMsgType::Response));
                     Ok(JsValue::undefined())
                 });
             },

@@ -1,5 +1,5 @@
 use crate::{
-    worker_message::{TransferableMessage, TransferableMessageType},
+    worker_message::{WorkerMsg, WorkerMsgType},
     workers::web_worker::WebWorker,
 };
 use futures::future::LocalBoxFuture;
@@ -31,10 +31,8 @@ pub trait ChannelWorker: WebWorker {
 #[doc(hidden)]
 pub struct ChannelWorkerFn {
     pub(crate) path: &'static str,
-    pub(crate) function: Arc<
-        dyn Fn(TransferableMessage, Box<dyn Fn(TransferableMessage) + Send + Sync + 'static>)
-            + 'static,
-    >,
+    pub(crate) function:
+        Arc<dyn Fn(WorkerMsg, Box<dyn Fn(WorkerMsg) + Send + Sync + 'static>) + 'static>,
 }
 
 impl ChannelWorkerFn {
@@ -46,8 +44,7 @@ impl ChannelWorkerFn {
                  which is probably unnecessary - but it's the easiest way without storing
                  state after initialization
         */
-        type Callback =
-            Arc<Mutex<Option<Box<dyn Fn(TransferableMessage) + Send + Sync + 'static>>>>;
+        type Callback = Arc<Mutex<Option<Box<dyn Fn(WorkerMsg) + Send + Sync + 'static>>>>;
         let callback: Callback = Arc::default();
         let (request_tx, request_rx) = flume::unbounded();
         let (response_tx, response_rx) = flume::unbounded();
@@ -61,17 +58,12 @@ impl ChannelWorkerFn {
                     while let Ok(response) = response_rx.recv_async().await {
                         let callback = callback.lock().expect("mutex should not be poisoned");
                         if let Some(callback) = callback.as_ref() {
-                            callback(TransferableMessage::new(
-                                TransferableMessageType::Response,
-                                response,
-                            ));
+                            callback(WorkerMsg::new(WorkerMsgType::Response, response));
                         }
                     }
                     let callback = callback.lock().expect("mutex should not be poisoned");
                     if let Some(callback) = callback.as_ref() {
-                        callback(TransferableMessage::new_null(
-                            TransferableMessageType::Response,
-                        ));
+                        callback(WorkerMsg::new_null(WorkerMsgType::Response));
                     }
                 }
             }));

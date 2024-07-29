@@ -1,5 +1,5 @@
-use crate::worker_message::TransferableMessage;
-use crate::worker_message::TransferableMessageType;
+use crate::worker_message::WorkerMsg;
+use crate::worker_message::WorkerMsgType;
 use crate::workers::CALLBACK_WORKER_FN;
 use crate::workers::CHANNEL_WORKER_FN;
 use crate::workers::FUTURE_WORKER_FN;
@@ -38,25 +38,25 @@ pub fn init_workers() {
     let onmessage: Closure<dyn FnMut(MessageEvent)> = Closure::new(move |event: MessageEvent| {
         let worker_scope: DedicatedWorkerGlobalScope = JsValue::from(global()).into();
 
-        let msg = TransferableMessage::decode(event.data());
+        let msg = WorkerMsg::decode(event.data());
         match msg.message_type() {
-            TransferableMessageType::ReqFuture => {
+            WorkerMsgType::ReqFuture => {
                 spawn_local(async move {
                     on_message_future_worker(&worker_scope, msg).await;
                 });
             }
-            TransferableMessageType::ReqStream => {
+            WorkerMsgType::ReqStream => {
                 spawn_local(async move {
                     on_message_stream_worker(&worker_scope, msg).await;
                 });
             }
-            TransferableMessageType::ReqCallback => {
+            WorkerMsgType::ReqCallback => {
                 on_message_callback_worker(worker_scope, msg);
             }
-            TransferableMessageType::ReqChannel => {
+            WorkerMsgType::ReqChannel => {
                 on_message_channel_worker(msg);
             }
-            TransferableMessageType::Response => {
+            WorkerMsgType::Response => {
                 // Never received this side.
             }
         }
@@ -67,7 +67,7 @@ pub fn init_workers() {
     onmessage.forget();
 }
 
-fn on_message_channel_worker(msg: TransferableMessage) {
+fn on_message_channel_worker(msg: WorkerMsg) {
     CHANNEL_WORKER_FN.with_borrow(move |channel_worker_fn| {
         let channel = &channel_worker_fn
             .as_ref()
@@ -83,7 +83,7 @@ fn on_message_channel_worker(msg: TransferableMessage) {
     });
 }
 
-fn on_message_callback_worker(worker_scope: DedicatedWorkerGlobalScope, msg: TransferableMessage) {
+fn on_message_callback_worker(worker_scope: DedicatedWorkerGlobalScope, msg: WorkerMsg) {
     let callback_worker_fn = CALLBACK_WORKER_FN
         .lock()
         .expect("failed to lock mutex for CallbackWorker");
@@ -100,10 +100,7 @@ fn on_message_callback_worker(worker_scope: DedicatedWorkerGlobalScope, msg: Tra
     );
 }
 
-async fn on_message_stream_worker(
-    worker_scope: &DedicatedWorkerGlobalScope,
-    msg: TransferableMessage,
-) {
+async fn on_message_stream_worker(worker_scope: &DedicatedWorkerGlobalScope, msg: WorkerMsg) {
     let mut stream = {
         let callback_worker_fn = STREAM_WORKER_FN
             .lock()
@@ -119,13 +116,10 @@ async fn on_message_stream_worker(
     while let Some(response) = stream.next().await {
         response.post_from_worker(worker_scope);
     }
-    TransferableMessage::new_null(TransferableMessageType::Response).post_from_worker(worker_scope);
+    WorkerMsg::new_null(WorkerMsgType::Response).post_from_worker(worker_scope);
 }
 
-async fn on_message_future_worker(
-    worker_scope: &DedicatedWorkerGlobalScope,
-    msg: TransferableMessage,
-) {
+async fn on_message_future_worker(worker_scope: &DedicatedWorkerGlobalScope, msg: WorkerMsg) {
     let future = {
         let future_worker_fn = FUTURE_WORKER_FN
             .lock()

@@ -1,5 +1,5 @@
 use crate::{
-    worker_message::{TransferableMessage, TransferableMessageType},
+    worker_message::{WorkerMsg, WorkerMsgType},
     workers::web_worker::WebWorker,
 };
 use futures::future::LocalBoxFuture;
@@ -21,7 +21,7 @@ pub trait FutureWorker: WebWorker {
 #[doc(hidden)]
 pub struct FutureWorkerFn {
     pub(crate) path: &'static str,
-    pub(crate) function: fn(TransferableMessage) -> LocalBoxFuture<'static, TransferableMessage>,
+    pub(crate) function: fn(WorkerMsg) -> LocalBoxFuture<'static, WorkerMsg>,
 }
 
 impl FutureWorkerFn {
@@ -34,7 +34,7 @@ impl FutureWorkerFn {
                 let request_data = request.into_inner();
                 Box::pin(async move {
                     let response = W::run(request_data).await;
-                    TransferableMessage::new(TransferableMessageType::Response, response)
+                    WorkerMsg::new(WorkerMsgType::Response, response)
                 })
             },
         }
