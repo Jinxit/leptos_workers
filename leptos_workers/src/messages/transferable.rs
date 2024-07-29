@@ -65,9 +65,9 @@ pub(crate) fn serialize_to_worker_msg(msg_type: WorkerMsgType, data: impl Serial
 }
 
 /// Used under the hood by `#[serde(with = "leptos_workers::transferable")]` to serialize transferable types.
-/// 
+///
 /// # Errors
-/// 
+///
 /// Will return `Err` if serde_wasm_bindgen errors.
 pub fn serialize<T: TransferableType, S>(data: &T, serializer: S) -> Result<S::Ok, S::Error>
 where
@@ -75,16 +75,16 @@ where
 {
     // Store the value in the temporary global store:
     TRANSFER_STORE_SERIALIZATION.with_borrow_mut(|store| {
-        store.store.push(data.underlying_transfer_object());
+        store.store.extend(data.underlying_transfer_object());
     });
 
     serde_wasm_bindgen::preserve::serialize(&data.to_js_value(), serializer)
 }
 
 /// Used under the hood by `#[serde(with = "leptos_workers::transferable")]` to deserialize transferable types.
-/// 
+///
 /// # Errors
-/// 
+///
 /// Will return `Err` if serde_wasm_bindgen errors.
 pub fn deserialize<'de, T: TransferableType, D>(deserializer: D) -> Result<T, D::Error>
 where
