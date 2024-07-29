@@ -188,8 +188,7 @@ fn lower_impl_type_worker_channel(
     } = model;
 
     let WorkerTypeChannel {
-        init_pat,
-        init_type,
+        init_pat_and_type,
         receiver_pat,
         request_type,
         sender_pat,
@@ -199,9 +198,21 @@ fn lower_impl_type_worker_channel(
 
     let thread_pool = thread_pool(model, &[]);
 
+    // Init param is optional:
+    let (init_pat, init_type, init_sig): (Pat, syn::Type, TokenStream) =
+        if let Some((init_pat, init_type)) = init_pat_and_type {
+            (
+                init_pat.clone(),
+                init_type.clone(),
+                parse_quote!(#init_pat: #init_type),
+            )
+        } else {
+            (parse_quote!(()), parse_quote!(()), parse_quote!())
+        };
+
     let func = parse_quote_spanned!(worker_name.span()=>
         #(#function_attrs)*
-        #visibility fn #function_name(#init_pat: #init_type) -> Result<(::leptos_workers::Sender<#request_type>, ::leptos_workers::Receiver<#response_type>), ::leptos_workers::CreateWorkerError> {
+        #visibility fn #function_name(#init_sig) -> Result<(::leptos_workers::Sender<#request_type>, ::leptos_workers::Receiver<#response_type>), ::leptos_workers::CreateWorkerError> {
             #(#thread_pool)*
             let (_, tx, rx) = POOL
                 .with(move |pool| {
@@ -217,7 +228,8 @@ fn lower_impl_type_worker_channel(
         impl ::leptos_workers::workers::ChannelWorker for #worker_name {
             type Init = #init_type;
 
-            fn channel(#init_pat: #init_type, #receiver_pat: ::leptos_workers::Receiver<Self::Request>, #sender_pat: ::leptos_workers::Sender<Self::Response>) -> ::leptos_workers::LocalBoxFuture<'static, ()>  {
+            #[allow(unused_variables)]
+            fn channel(init: #init_type, #receiver_pat: ::leptos_workers::Receiver<Self::Request>, #sender_pat: ::leptos_workers::Sender<Self::Response>) -> ::leptos_workers::LocalBoxFuture<'static, ()>  {
                 Box::pin(async move {
                     #(#function_body)*
                 })

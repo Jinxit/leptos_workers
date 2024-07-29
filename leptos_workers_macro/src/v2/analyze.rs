@@ -33,6 +33,8 @@ const VALID_SIGNATURES: &str = indoc! { r"
     Callback:
         [pub] [async] fn worker(req: Request, callback: impl Fn(Response))
     Channel:
+        [pub] [async] fn worker(rx: leptos_workers::Receiver<Request>, tx: leptos_workers::Sender<Response>)
+        or with an initialisation parameter:
         [pub] [async] fn worker(init: Init, rx: leptos_workers::Receiver<Request>, tx: leptos_workers::Sender<Response>)
     Future:
         [pub] [async] fn worker(req: Request) -> Response
@@ -40,6 +42,7 @@ const VALID_SIGNATURES: &str = indoc! { r"
         [pub] [async] fn worker(req: Request) -> impl leptos_workers::Stream<Item = Response>
 " };
 
+#[allow(clippy::too_many_lines)]
 fn analyze_worker_type(sig: &Signature) -> WorkerType {
     // this needs the full Option::None to properly pattern match
     #[allow(unused_qualifications)]
@@ -60,7 +63,83 @@ fn analyze_worker_type(sig: &Signature) -> WorkerType {
     };
 
     let inputs = inputs.iter().collect::<Vec<_>>();
-    if let &[FnArg::Typed(input)] = inputs.as_slice() {
+    if let &[FnArg::Typed(first), FnArg::Typed(second), FnArg::Typed(third)] = inputs.as_slice() {
+        // channel case WITH init parameter:
+
+        let receiver_opt = pattern_match_holes(
+            &[
+                quote!(leptos_workers::Receiver<@>),
+                quote!(flume::Receiver<@>),
+                quote!(Receiver<@>),
+            ],
+            &second.ty,
+        );
+        let sender_opt = pattern_match_holes(
+            &[
+                quote!(leptos_workers::Sender<@>),
+                quote!(flume::Sender<@>),
+                quote!(Sender<@>),
+            ],
+            &third.ty,
+        );
+        if let Some((second_tokens, third_tokens)) = receiver_opt.zip(sender_opt) {
+            WorkerType::Channel(WorkerTypeChannel {
+                init_pat_and_type: Some((*first.pat.clone(), *first.ty.clone())),
+                receiver_pat: *second.pat.clone(),
+                receiver_type: *second.ty.clone(),
+                request_type: parse_quote_spanned!(second.span()=> #second_tokens),
+                sender_pat: *third.pat.clone(),
+                sender_type: *third.ty.clone(),
+                response_type: parse_quote_spanned!(third.span()=> #third_tokens),
+            })
+        } else {
+            abort!(sig, "couldn't match worker type"; help = VALID_SIGNATURES)
+        }
+    } else if let &[FnArg::Typed(first), FnArg::Typed(second)] = inputs.as_slice() {
+        // channel case WITHOUT init parameter:
+
+        let receiver_opt = pattern_match_holes(
+            &[
+                quote!(leptos_workers::Receiver<@>),
+                quote!(flume::Receiver<@>),
+                quote!(Receiver<@>),
+            ],
+            &first.ty,
+        );
+        let sender_opt = pattern_match_holes(
+            &[
+                quote!(leptos_workers::Sender<@>),
+                quote!(flume::Sender<@>),
+                quote!(Sender<@>),
+            ],
+            &second.ty,
+        );
+        if let Some((first_tokens, second_tokens)) = receiver_opt.zip(sender_opt) {
+            // Empty () is used as the init type
+            return WorkerType::Channel(WorkerTypeChannel {
+                init_pat_and_type: None,
+                receiver_pat: *first.pat.clone(),
+                receiver_type: *first.ty.clone(),
+                request_type: parse_quote_spanned!(first.span()=> #first_tokens),
+                sender_pat: *second.pat.clone(),
+                sender_type: *second.ty.clone(),
+                response_type: parse_quote_spanned!(second.span()=> #second_tokens),
+            });
+        }
+
+        // callback case:
+
+        if let Some(tokens) = pattern_match_holes(&[quote!(impl Fn(@))], &second.ty) {
+            WorkerType::Callback(WorkerTypeCallback {
+                request_pat: *first.pat.clone(),
+                request_type: *first.ty.clone(),
+                callback_pat: *second.pat.clone(),
+                response_type: parse_quote_spanned!(second.span()=> #tokens),
+            })
+        } else {
+            abort!(sig, "couldn't match worker type"; help = VALID_SIGNATURES)
+        }
+    } else if let &[FnArg::Typed(input)] = inputs.as_slice() {
         let ReturnType::Type(_, return_type) = output else {
             abort!(sig, "couldn't match worker type"; help = VALID_SIGNATURES)
         };
@@ -87,50 +166,6 @@ fn analyze_worker_type(sig: &Signature) -> WorkerType {
                 response_type: *return_type.clone(),
             })
         }
-    } else if let &[FnArg::Typed(first), FnArg::Typed(second)] = inputs.as_slice() {
-        if let Some(tokens) = pattern_match_holes(&[quote!(impl Fn(@))], &second.ty) {
-            WorkerType::Callback(WorkerTypeCallback {
-                request_pat: *first.pat.clone(),
-                request_type: *first.ty.clone(),
-                callback_pat: *second.pat.clone(),
-                response_type: parse_quote_spanned!(second.span()=> #tokens),
-            })
-        } else {
-            abort!(sig, "couldn't match worker type"; help = VALID_SIGNATURES)
-        }
-    } else if let &[FnArg::Typed(first), FnArg::Typed(second), FnArg::Typed(third)] =
-        inputs.as_slice()
-    {
-        let receiver_opt = pattern_match_holes(
-            &[
-                quote!(leptos_workers::Receiver<@>),
-                quote!(flume::Receiver<@>),
-                quote!(Receiver<@>),
-            ],
-            &second.ty,
-        );
-        let sender_opt = pattern_match_holes(
-            &[
-                quote!(leptos_workers::Sender<@>),
-                quote!(flume::Sender<@>),
-                quote!(Sender<@>),
-            ],
-            &third.ty,
-        );
-        if let Some((second_tokens, third_tokens)) = receiver_opt.zip(sender_opt) {
-            WorkerType::Channel(WorkerTypeChannel {
-                init_pat: *first.pat.clone(),
-                init_type: *first.ty.clone(),
-                receiver_pat: *second.pat.clone(),
-                receiver_type: *second.ty.clone(),
-                request_type: parse_quote_spanned!(second.span()=> #second_tokens),
-                sender_pat: *third.pat.clone(),
-                sender_type: *third.ty.clone(),
-                response_type: parse_quote_spanned!(third.span()=> #third_tokens),
-            })
-        } else {
-            abort!(sig, "couldn't match worker type"; help = VALID_SIGNATURES)
-        }
     } else {
         abort!(sig, "invalid number of arguments to worker, must be 1, 2 or 3"; help = VALID_SIGNATURES)
     }
@@ -154,8 +189,8 @@ pub struct WorkerTypeCallback {
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct WorkerTypeChannel {
-    pub init_pat: Pat,
-    pub init_type: Type,
+    // Init is an optional parameter.
+    pub init_pat_and_type: Option<(Pat, Type)>,
     pub receiver_pat: Pat,
     pub receiver_type: Type,
     pub request_type: Type,
