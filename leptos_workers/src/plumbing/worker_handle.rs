@@ -1,5 +1,5 @@
 use crate::plumbing::{create_worker, CreateWorkerError};
-use crate::worker_message::{TransferableMessage, TransferableMessageType};
+use crate::worker_message::{WorkerMsg, WorkerMsgType};
 use crate::workers::CallbackWorker;
 use crate::workers::ChannelWorker;
 use crate::workers::FutureWorker;
@@ -40,7 +40,7 @@ impl<W: FutureWorker> WorkerHandle<W> {
 
         let tx = Rc::new(RefCell::new(Some(tx)));
         let closure: Closure<dyn FnMut(MessageEvent)> = Closure::new(move |event: MessageEvent| {
-            let response = TransferableMessage::decode(event.data());
+            let response = WorkerMsg::decode(event.data());
             let response_data = response.into_inner();
             let _ = tx
                 .borrow_mut()
@@ -53,8 +53,7 @@ impl<W: FutureWorker> WorkerHandle<W> {
             self.worker
                 .set_onmessage(Some(closure.as_ref().unchecked_ref()));
 
-            TransferableMessage::new(TransferableMessageType::ReqFuture, request)
-                .post_to_worker(&self.worker);
+            WorkerMsg::new(WorkerMsgType::ReqFuture, request).post_to_worker(&self.worker);
         }
 
         rx.into_recv_async()
@@ -69,7 +68,7 @@ impl<W: StreamWorker> WorkerHandle<W> {
 
         let tx = Rc::new(RefCell::new(Some(tx)));
         let closure: Closure<dyn FnMut(MessageEvent)> = Closure::new(move |event: MessageEvent| {
-            let response = TransferableMessage::decode(event.data());
+            let response = WorkerMsg::decode(event.data());
             if response.is_null() {
                 tx.take();
             } else {
@@ -85,8 +84,7 @@ impl<W: StreamWorker> WorkerHandle<W> {
             self.worker
                 .set_onmessage(Some(closure.as_ref().unchecked_ref()));
 
-            TransferableMessage::new(TransferableMessageType::ReqStream, request)
-                .post_to_worker(&self.worker);
+            WorkerMsg::new(WorkerMsgType::ReqStream, request).post_to_worker(&self.worker);
         }
 
         // this sentinel makes sure we drop the closure only after the stream is done
@@ -107,7 +105,7 @@ impl<W: CallbackWorker> WorkerHandle<W> {
     ) {
         let (tx, rx) = flume::bounded::<()>(1);
         let closure: Closure<dyn FnMut(MessageEvent)> = Closure::new(move |event: MessageEvent| {
-            let response = TransferableMessage::decode(event.data());
+            let response = WorkerMsg::decode(event.data());
             if response.is_null() {
                 if let Err(e) = tx.send(()) {
                     warn!("Couldn't send data in stream_callback. Was the promise dropped? {e:?}");
@@ -121,8 +119,7 @@ impl<W: CallbackWorker> WorkerHandle<W> {
             self.worker
                 .set_onmessage(Some(closure.into_js_value().as_ref().unchecked_ref()));
 
-            TransferableMessage::new(TransferableMessageType::ReqCallback, request)
-                .post_to_worker(&self.worker);
+            WorkerMsg::new(WorkerMsgType::ReqCallback, request).post_to_worker(&self.worker);
         }
         let _ = rx.into_recv_async().await;
     }
@@ -134,14 +131,13 @@ impl<W: ChannelWorker> WorkerHandle<W> {
         init: W::Init,
     ) -> (flume::Sender<W::Request>, flume::Receiver<W::Response>) {
         // Send the init data through directly:
-        TransferableMessage::new(TransferableMessageType::ReqChannel, init)
-            .post_to_worker(&self.worker);
+        WorkerMsg::new(WorkerMsgType::ReqChannel, init).post_to_worker(&self.worker);
 
         let (request_tx, request_rx) = flume::unbounded::<W::Request>();
         let (response_tx, response_rx) = flume::unbounded::<W::Response>();
         let response_tx = Rc::new(RefCell::new(Some(response_tx)));
         let closure: Closure<dyn FnMut(MessageEvent)> = Closure::new(move |event: MessageEvent| {
-            let response = TransferableMessage::decode(event.data());
+            let response = WorkerMsg::decode(event.data());
             if response.is_null() {
                 *response_tx.borrow_mut() = None;
             } else {
@@ -157,11 +153,9 @@ impl<W: ChannelWorker> WorkerHandle<W> {
         worker.set_onmessage(Some(closure.into_js_value().as_ref().unchecked_ref()));
         spawn_local(async move {
             while let Ok(request) = request_rx.recv_async().await {
-                TransferableMessage::new(TransferableMessageType::ReqChannel, request)
-                    .post_to_worker(&worker);
+                WorkerMsg::new(WorkerMsgType::ReqChannel, request).post_to_worker(&worker);
             }
-            TransferableMessage::new_null(TransferableMessageType::ReqChannel)
-                .post_to_worker(&worker);
+            WorkerMsg::new_null(WorkerMsgType::ReqChannel).post_to_worker(&worker);
         });
         (request_tx, response_rx)
     }

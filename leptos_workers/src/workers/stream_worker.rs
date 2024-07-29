@@ -1,4 +1,4 @@
-use crate::worker_message::{TransferableMessage, TransferableMessageType};
+use crate::worker_message::{WorkerMsg, WorkerMsgType};
 use crate::workers::web_worker::WebWorker;
 use futures::stream::LocalBoxStream;
 use futures::StreamExt;
@@ -21,7 +21,7 @@ pub trait StreamWorker: WebWorker {
 #[doc(hidden)]
 pub struct StreamWorkerFn {
     pub(crate) path: &'static str,
-    pub(crate) function: fn(TransferableMessage) -> LocalBoxStream<'static, TransferableMessage>,
+    pub(crate) function: fn(WorkerMsg) -> LocalBoxStream<'static, WorkerMsg>,
 }
 
 impl StreamWorkerFn {
@@ -32,9 +32,10 @@ impl StreamWorkerFn {
             path: W::path(),
             function: move |request| {
                 let request_data = request.into_inner();
-                Box::pin(W::stream(request_data).map(|response| {
-                    TransferableMessage::new(TransferableMessageType::Response, response)
-                }))
+                Box::pin(
+                    W::stream(request_data)
+                        .map(|response| WorkerMsg::new(WorkerMsgType::Response, response)),
+                )
             },
         }
     }
