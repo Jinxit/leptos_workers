@@ -27,10 +27,7 @@ pub(crate) struct WorkerMsg {
 }
 
 impl WorkerMsg {
-    /// Create a new message to send.
-    ///
-    /// Transferables are extracted during serialization, requiring some setup,
-    /// therefore must be passed as a callback.
+    /// Create a new message to send across threads.
     pub fn new(msg_type: WorkerMsgType, data: impl Serialize) -> Self {
         // Handing off to the transferable module to keep complex logic localised.
         serialize_to_worker_msg(msg_type, data)
