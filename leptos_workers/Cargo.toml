@@ -58,7 +58,13 @@ features = [
     "Worker",
     "WorkerLocation",
     "WorkerOptions",
-    "WorkerType"
+    "WorkerType",
+    "MessagePort",
+    "WritableStream",
+    "TransformStream",
+    "ImageBitmap",
+    "OffscreenCanvas",
+    "RtcDataChannel"
 ]
 
 [dev-dependencies]
