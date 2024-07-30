@@ -5,7 +5,7 @@ use super::TransferableType;
 /// If the user had a random type they knew worked with transferables but leptos_workers haven't implemented a type for,
 /// they can cast it to a JsValue and use this implementation.
 impl TransferableType for JsValue {
-    fn underlying_transfer_object(&self) -> Vec<JsValue> {
+    fn underlying_transfer_objects(&self) -> Vec<JsValue> {
         vec![self.clone()]
     }
 
@@ -19,7 +19,7 @@ impl TransferableType for JsValue {
 }
 
 impl TransferableType for js_sys::Uint8Array {
-    fn underlying_transfer_object(&self) -> Vec<JsValue> {
+    fn underlying_transfer_objects(&self) -> Vec<JsValue> {
         vec![self.buffer().into()]
     }
 
