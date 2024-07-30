@@ -59,12 +59,14 @@ features = [
     "WorkerLocation",
     "WorkerOptions",
     "WorkerType",
+    "MessageChannel",
     "MessagePort",
     "WritableStream",
     "TransformStream",
     "ImageBitmap",
     "OffscreenCanvas",
-    "RtcDataChannel"
+    "RtcDataChannel",
+    "RtcPeerConnection",
 ]
 
 [dev-dependencies]
@@ -72,3 +74,4 @@ gloo-timers = { version = "0.3", features = ["futures"]}
 trybuild = "1.0"
 pollster = "0.3"
 wasm-bindgen-test = "0.3"
+paste = "1.0"
