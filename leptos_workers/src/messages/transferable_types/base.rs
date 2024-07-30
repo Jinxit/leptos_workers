@@ -36,11 +36,11 @@ pub trait TransferableType: std::fmt::Debug + Clone {
     /// https://developer.mozilla.org/en-US/docs/Web/API/Web_Workers_API/Transferable_objects
     fn underlying_transfer_object(&self) -> Vec<JsValue>;
 
-    /// Convert the type from a generic js value back to the specialized type.
-    fn from_js_value(value: JsValue) -> Self;
-
     /// Convert into a generic js value.
     fn to_js_value(&self) -> JsValue;
+    
+    /// Convert the type from a generic js value back to the specialized type.
+    fn from_js_value(value: JsValue) -> Self;
 }
 
 impl TransferableType for js_sys::ArrayBuffer {
