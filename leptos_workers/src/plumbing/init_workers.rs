@@ -57,7 +57,10 @@ pub fn init_workers() {
                 on_message_channel_worker(msg);
             }
             WorkerMsgType::Response => {
-                // Never received this side.
+                #[allow(clippy::panic)]
+                {
+                    panic!("Never expecting a response message in the worker.");
+                }
             }
         }
     });

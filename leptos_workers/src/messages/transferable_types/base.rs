@@ -1,7 +1,7 @@
 use wasm_bindgen::{JsCast, JsValue};
 
 /// A trait for implementing the JS types that can be transferred to other threads without copying.
-/// 
+///
 /// Such objects utilise the separate second argument of the postMessage webworker API dedicated to transferable objects.
 ///
 /// All basic types supporting transfers mentioned in mozilla docs are built-in,
