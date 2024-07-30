@@ -1,12 +1,11 @@
 use wasm_bindgen::{JsCast, JsValue};
 
-/// A trait for implementing the types that can be transferred without copying.
-///
-/// Some JS values can be transferred directly to other threads, but need some special handling.
-/// This trait allows configuration of those js values that must be passed separately during the postMessage call.
+/// A trait for implementing the JS types that can be transferred to other threads without copying.
+/// 
+/// Such objects utilise the separate second argument of the postMessage webworker API dedicated to transferable objects.
 ///
 /// All basic types supporting transfers mentioned in mozilla docs are built-in,
-/// along with the most common derivatives like [`js_sys::Uint8Array`]. types are implemented by leptos_workers internally.
+/// along with the most common derivatives like [`js_sys::Uint8Array`].
 ///
 /// [`Vec<T>`], [`std::collections::HashMap<String, T>`], [`Option<T>`] are also implemented, as long as T implements [`TransferableType`].
 /// [`JsValue`] is implemented as a fallback for downstream unimplemented types that are known to work with transferables.
