@@ -29,7 +29,9 @@ impl<T: TransferableType> TransferableType for Option<T> {
     }
 }
 
-impl<T: TransferableType, S: ::std::hash::BuildHasher + Clone + Default> TransferableType for HashMap<String, T, S> {
+impl<T: TransferableType, S: ::std::hash::BuildHasher + Clone + Default> TransferableType
+    for HashMap<String, T, S>
+{
     fn underlying_transfer_objects(&self) -> Vec<JsValue> {
         self.values()
             .flat_map(T::underlying_transfer_objects)
