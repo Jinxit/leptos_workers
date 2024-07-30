@@ -84,34 +84,30 @@ fn on_message_channel_worker(msg: WorkerMsg) {
 }
 
 fn on_message_callback_worker(worker_scope: DedicatedWorkerGlobalScope, msg: WorkerMsg) {
-    let callback_worker_fn = CALLBACK_WORKER_FN
-        .lock()
-        .expect("failed to lock mutex for CallbackWorker");
-    let stream_callback = callback_worker_fn
-        .as_ref()
-        .expect("Tried to use a CallbackWorker which was not registered.")
-        .function;
+    CALLBACK_WORKER_FN.with_borrow(move |callback_worker_fn| {
+        let stream_callback = callback_worker_fn
+            .as_ref()
+            .expect("Tried to use a CallbackWorker which was not registered.")
+            .function;
 
-    stream_callback(
-        msg,
-        Box::new(move |response| {
-            response.post(&worker_scope);
-        }),
-    );
+        stream_callback(
+            msg,
+            Box::new(move |response| {
+                response.post(&worker_scope);
+            }),
+        );
+    });
 }
 
 async fn on_message_stream_worker(worker_scope: &DedicatedWorkerGlobalScope, msg: WorkerMsg) {
-    let mut stream = {
-        let callback_worker_fn = STREAM_WORKER_FN
-            .lock()
-            .expect("failed to lock mutex for StreamWorker");
+    let mut stream = STREAM_WORKER_FN.with_borrow(move |callback_worker_fn| {
         let stream = callback_worker_fn
             .as_ref()
             .expect("Tried to use a StreamWorker which was not registered.")
             .function;
 
         stream(msg)
-    };
+    });
 
     while let Some(response) = stream.next().await {
         response.post(worker_scope);
@@ -120,17 +116,14 @@ async fn on_message_stream_worker(worker_scope: &DedicatedWorkerGlobalScope, msg
 }
 
 async fn on_message_future_worker(worker_scope: &DedicatedWorkerGlobalScope, msg: WorkerMsg) {
-    let future = {
-        let future_worker_fn = FUTURE_WORKER_FN
-            .lock()
-            .expect("failed to lock mutex for FutureWorker");
+    let future = FUTURE_WORKER_FN.with_borrow(|future_worker_fn| {
         let run = future_worker_fn
             .as_ref()
             .expect("Tried to use a FutureWorker which was not registered.")
             .function;
 
         run(msg)
-    };
+    });
 
     let response = future.await;
     response.post(worker_scope);

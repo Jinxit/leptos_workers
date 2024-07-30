@@ -3,7 +3,7 @@ use crate::{
     workers::web_worker::WebWorker,
 };
 use futures::future::LocalBoxFuture;
-use std::sync::Mutex;
+use std::cell::RefCell;
 use wasm_bindgen::prelude::*;
 
 /// Takes a single request and responds with a single response.
@@ -54,12 +54,13 @@ mod private {
 
         let worker_scope: DedicatedWorkerGlobalScope = JsValue::from(global()).into();
         if worker_scope.name() == future_worker.path {
-            let mut opt = FUTURE_WORKER_FN
-                .lock()
-                .expect("failed to lock FUTURE_WORKER_FN");
-            *opt = Some(future_worker.clone());
+            FUTURE_WORKER_FN.with_borrow_mut(move |opt| {
+                *opt = Some(future_worker.clone());
+            });
         }
     }
 }
 
-pub(crate) static FUTURE_WORKER_FN: Mutex<Option<FutureWorkerFn>> = Mutex::new(None);
+thread_local! {
+    pub(crate) static FUTURE_WORKER_FN: RefCell<Option<FutureWorkerFn>> = const { RefCell::new(None) };
+}

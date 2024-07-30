@@ -2,7 +2,7 @@ use crate::messages::{WorkerMsg, WorkerMsgType};
 use crate::workers::web_worker::WebWorker;
 use alloc::rc::Rc;
 use futures::future::LocalBoxFuture;
-use std::sync::Mutex;
+use std::cell::RefCell;
 use wasm_bindgen::prelude::wasm_bindgen;
 use wasm_bindgen::JsValue;
 use wasm_bindgen_futures::future_to_promise;
@@ -65,12 +65,11 @@ mod private {
 
         let worker_scope: DedicatedWorkerGlobalScope = JsValue::from(global()).into();
         if worker_scope.name() == callback_worker.path {
-            let mut opt = CALLBACK_WORKER_FN
-                .lock()
-                .expect("failed to lock CALLBACK_WORKER_FN");
-            *opt = Some(callback_worker.clone());
+            CALLBACK_WORKER_FN.with_borrow_mut(move |opt| *opt = Some(callback_worker.clone()));
         }
     }
 }
 
-pub(crate) static CALLBACK_WORKER_FN: Mutex<Option<CallbackWorkerFn>> = Mutex::new(None);
+thread_local! {
+    pub(crate) static CALLBACK_WORKER_FN: RefCell<Option<CallbackWorkerFn>> = const { RefCell::new(None) };
+}
