@@ -29,9 +29,7 @@ impl<T: TransferableType> TransferableType for Option<T> {
     }
 }
 
-// TODO do implicit_hasher lint.
-#[allow(clippy::implicit_hasher)]
-impl<T: TransferableType> TransferableType for HashMap<String, T> {
+impl<T: TransferableType, S: ::std::hash::BuildHasher + Clone + Default> TransferableType for HashMap<String, T, S> {
     fn underlying_transfer_objects(&self) -> Vec<JsValue> {
         self.values()
             .flat_map(T::underlying_transfer_objects)
@@ -40,7 +38,7 @@ impl<T: TransferableType> TransferableType for HashMap<String, T> {
 
     fn from_js_value(value: JsValue) -> Self {
         let obj = value.unchecked_ref::<js_sys::Object>();
-        let mut map = HashMap::new();
+        let mut map = HashMap::default();
         let js_entries = js_sys::Object::entries(obj);
         for entry in js_entries.iter() {
             let entry = entry.unchecked_into::<js_sys::Array>();
