@@ -34,8 +34,7 @@ const VALID_SIGNATURES: &str = indoc! { r"
         [pub] [async] fn worker(req: Request, callback: impl Fn(Response))
     Channel:
         [pub] [async] fn worker(rx: leptos_workers::Receiver<Request>, tx: leptos_workers::Sender<Response>)
-        or with an initialisation parameter:
-        [pub] [async] fn worker(init: Init, rx: leptos_workers::Receiver<Request>, tx: leptos_workers::Sender<Response>)
+        [pub] [async] fn worker([init: Init,] rx: leptos_workers::Receiver<Request>, tx: leptos_workers::Sender<Response>)
     Future:
         [pub] [async] fn worker(req: Request) -> Response
     Stream:
