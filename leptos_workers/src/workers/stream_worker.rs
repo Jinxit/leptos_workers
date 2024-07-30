@@ -2,7 +2,7 @@ use crate::messages::{WorkerMsg, WorkerMsgType};
 use crate::workers::web_worker::WebWorker;
 use futures::stream::LocalBoxStream;
 use futures::StreamExt;
-use std::sync::Mutex;
+use std::cell::RefCell;
 use wasm_bindgen::prelude::*;
 
 /// Takes a single request but can reply with multiple responses.
@@ -54,12 +54,13 @@ mod private {
 
         let worker_scope: DedicatedWorkerGlobalScope = JsValue::from(global()).into();
         if worker_scope.name() == stream_worker.path {
-            let mut opt = STREAM_WORKER_FN
-                .lock()
-                .expect("failed to lock STREAM_WORKER_FN");
-            *opt = Some(stream_worker.clone());
+            STREAM_WORKER_FN.with_borrow_mut(move |opt| {
+                *opt = Some(stream_worker.clone());
+            });
         }
     }
 }
 
-pub(crate) static STREAM_WORKER_FN: Mutex<Option<StreamWorkerFn>> = Mutex::new(None);
+thread_local! {
+    pub(crate) static STREAM_WORKER_FN: RefCell<Option<StreamWorkerFn>> = const { RefCell::new(None) };
+}
