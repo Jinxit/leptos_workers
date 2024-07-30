@@ -75,7 +75,7 @@ where
 {
     // Store the value in the temporary global store:
     TRANSFER_STORE_SERIALIZATION.with_borrow_mut(|store| {
-        store.store.extend(data.underlying_transfer_object());
+        store.store.extend(data.underlying_transfer_objects());
     });
 
     serde_wasm_bindgen::preserve::serialize(&data.to_js_value(), serializer)

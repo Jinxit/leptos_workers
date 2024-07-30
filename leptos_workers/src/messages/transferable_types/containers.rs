@@ -6,9 +6,9 @@ use wasm_bindgen::{JsCast, JsValue};
 use super::TransferableType;
 
 impl<T: TransferableType> TransferableType for Option<T> {
-    fn underlying_transfer_object(&self) -> Vec<JsValue> {
+    fn underlying_transfer_objects(&self) -> Vec<JsValue> {
         match self {
-            Some(t) => t.underlying_transfer_object(),
+            Some(t) => t.underlying_transfer_objects(),
             None => vec![],
         }
     }
@@ -32,9 +32,9 @@ impl<T: TransferableType> TransferableType for Option<T> {
 // TODO do implicit_hasher lint.
 #[allow(clippy::implicit_hasher)]
 impl<T: TransferableType> TransferableType for HashMap<String, T> {
-    fn underlying_transfer_object(&self) -> Vec<JsValue> {
+    fn underlying_transfer_objects(&self) -> Vec<JsValue> {
         self.values()
-            .flat_map(T::underlying_transfer_object)
+            .flat_map(T::underlying_transfer_objects)
             .collect()
     }
 
@@ -65,9 +65,9 @@ impl<T: TransferableType> TransferableType for HashMap<String, T> {
 }
 
 impl<T: TransferableType> TransferableType for Vec<T> {
-    fn underlying_transfer_object(&self) -> Vec<JsValue> {
+    fn underlying_transfer_objects(&self) -> Vec<JsValue> {
         self.iter()
-            .flat_map(T::underlying_transfer_object)
+            .flat_map(T::underlying_transfer_objects)
             .collect()
     }
 
