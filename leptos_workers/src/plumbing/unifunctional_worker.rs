@@ -41,7 +41,7 @@ pub(crate) fn web_module(js_url: &JsString, wasm_url: &JsString) -> String {
         }}
         
         async function load() {{
-            let mod = await init("{wasm_url}");
+            let mod = await init({{ module_or_path: "{wasm_url}" }});
             
             let future_worker_fn = mod["WORKERS_FUTURE_" + self.name];
             if (future_worker_fn) {{ future_worker_fn(); }}
