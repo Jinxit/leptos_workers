@@ -485,8 +485,8 @@ mod tests {
         let expected: ItemFn = parse_quote!(
             #[::leptos_workers::wasm_bindgen::prelude::wasm_bindgen(wasm_bindgen = ::leptos_workers::wasm_bindgen)]
             #[allow(non_snake_case)]
-            pub fn WORKERS_FUTURE_TestFutureWorker() -> ::leptos_workers::workers::FutureWorkerFn {
-                ::leptos_workers::workers::FutureWorkerFn::new::<TestFutureWorker>()
+            pub fn WORKERS_FUTURE_TestFutureWorker() {
+                ::leptos_workers::workers::register_future_worker::<TestFutureWorker>();
             }
         );
         assert_eq_quoted(&expected, &ir.wasm_bindgen_func);
@@ -578,8 +578,8 @@ mod tests {
         let expected: ItemFn = parse_quote!(
             #[::leptos_workers::wasm_bindgen::prelude::wasm_bindgen(wasm_bindgen = ::leptos_workers::wasm_bindgen)]
             #[allow(non_snake_case)]
-            pub fn WORKERS_FUTURE_TestFutureWorker() -> ::leptos_workers::workers::FutureWorkerFn {
-                ::leptos_workers::workers::FutureWorkerFn::new::<TestFutureWorker>()
+            pub fn WORKERS_FUTURE_TestFutureWorker() {
+                ::leptos_workers::workers::register_future_worker::<TestFutureWorker>();
             }
         );
         assert_eq_quoted(&expected, &ir.wasm_bindgen_func);
