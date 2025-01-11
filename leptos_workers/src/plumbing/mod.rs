@@ -3,4 +3,4 @@ pub use create_worker::*;
 mod worker_handle;
 pub use worker_handle::*;
 
-mod dedicated_worker;
+mod unifunctional_worker;
