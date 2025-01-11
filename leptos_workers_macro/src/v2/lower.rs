@@ -99,12 +99,12 @@ fn lower_wasm_bindgen_func(model: &Model) -> ItemFn {
     } = model;
     let prefix = worker_type.wasm_function_prefix();
     let func_name = format_ident!("{prefix}_{worker_name}");
-    let worker_fn_type = worker_type.worker_fn_type();
+    let worker_registration_fn = worker_type.worker_registration_fn();
     parse_quote_spanned!(worker_name.span()=>
         #[::leptos_workers::wasm_bindgen::prelude::wasm_bindgen(wasm_bindgen = ::leptos_workers::wasm_bindgen)]
         #[allow(non_snake_case)]
-        pub fn #func_name() -> ::leptos_workers::workers::#worker_fn_type {
-            ::leptos_workers::workers::#worker_fn_type::new::<#worker_name>()
+        pub fn #func_name() {
+            ::leptos_workers::workers::#worker_registration_fn::<#worker_name>();
         }
     )
 }
@@ -426,6 +426,7 @@ mod tests {
     use syn::parse_quote;
 
     #[allow(dead_code)]
+    #[track_caller]
     fn assert_eq_quoted<L: ToTokens + PartialEq<R>, R: ToTokens>(lhs: &L, rhs: &R) {
         if lhs != rhs {
             assert_eq!(
@@ -670,8 +671,8 @@ mod tests {
         let expected: ItemFn = parse_quote!(
             #[::leptos_workers::wasm_bindgen::prelude::wasm_bindgen(wasm_bindgen = ::leptos_workers::wasm_bindgen)]
             #[allow(non_snake_case)]
-            pub fn WORKERS_FUTURE_TestFutureWorker() -> ::leptos_workers::workers::FutureWorkerFn {
-                ::leptos_workers::workers::FutureWorkerFn::new::<TestFutureWorker>()
+            pub fn WORKERS_FUTURE_TestFutureWorker() {
+                ::leptos_workers::workers::register_future_worker::<TestFutureWorker>();
             }
         );
         assert_eq_quoted(&expected, &ir.wasm_bindgen_func);

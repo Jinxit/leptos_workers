@@ -4,7 +4,6 @@ use crate::{
 };
 use futures::future::LocalBoxFuture;
 use std::cell::RefCell;
-use wasm_bindgen::prelude::*;
 
 /// Takes a single request and responds with a single response.
 /// Technically, the implementation doesn't even have to be asynchronous - but when executed
@@ -16,20 +15,15 @@ pub trait FutureWorker: WebWorker {
     fn run(request: Self::Request) -> LocalBoxFuture<'static, Self::Response>;
 }
 
-#[wasm_bindgen]
-#[derive(Clone)]
-#[doc(hidden)]
-pub struct FutureWorkerFn {
-    pub(crate) path: &'static str,
+pub(crate) struct FutureWorkerFn {
+    pub(crate) _path: &'static str,
     pub(crate) function: fn(WorkerMsg) -> LocalBoxFuture<'static, WorkerMsg>,
 }
 
 impl FutureWorkerFn {
-    #[must_use]
-    #[doc(hidden)]
-    pub fn new<W: FutureWorker>() -> Self {
+    fn new<W: FutureWorker>() -> Self {
         Self {
-            path: W::path(),
+            _path: W::path(),
             function: move |request| {
                 let request_data = request.into_inner();
                 Box::pin(async move {
@@ -41,24 +35,16 @@ impl FutureWorkerFn {
     }
 }
 
-mod private {
-    use crate::workers::future_worker::{FutureWorkerFn, FUTURE_WORKER_FN};
-    use js_sys::global;
-    use wasm_bindgen::prelude::wasm_bindgen;
-    use wasm_bindgen::JsValue;
-    use web_sys::DedicatedWorkerGlobalScope;
-
-    #[wasm_bindgen]
-    pub fn register_future_worker(future_worker: &FutureWorkerFn) {
+#[doc(hidden)]
+pub fn register_future_worker<W: FutureWorker>() {
+    fn register(future_worker: FutureWorkerFn) {
         console_error_panic_hook::set_once();
 
-        let worker_scope: DedicatedWorkerGlobalScope = JsValue::from(global()).into();
-        if worker_scope.name() == future_worker.path {
-            FUTURE_WORKER_FN.with_borrow_mut(move |opt| {
-                *opt = Some(future_worker.clone());
-            });
-        }
+        FUTURE_WORKER_FN.with_borrow_mut(move |opt| {
+            *opt = Some(future_worker);
+        });
     }
+    register(FutureWorkerFn::new::<W>());
 }
 
 thread_local! {

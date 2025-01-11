@@ -223,12 +223,12 @@ impl WorkerType {
         }
     }
 
-    pub fn worker_fn_type(&self) -> Type {
+    pub fn worker_registration_fn(&self) -> Type {
         match self {
-            WorkerType::Callback(_) => parse_quote!(CallbackWorkerFn),
-            WorkerType::Channel(_) => parse_quote!(ChannelWorkerFn),
-            WorkerType::Future(_) => parse_quote!(FutureWorkerFn),
-            WorkerType::Stream(_) => parse_quote!(StreamWorkerFn),
+            WorkerType::Callback(_) => parse_quote!(register_callback_worker),
+            WorkerType::Channel(_) => parse_quote!(register_channel_worker),
+            WorkerType::Future(_) => parse_quote!(register_future_worker),
+            WorkerType::Stream(_) => parse_quote!(register_stream_worker),
         }
     }
 

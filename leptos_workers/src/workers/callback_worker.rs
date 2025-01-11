@@ -3,7 +3,6 @@ use crate::workers::web_worker::WebWorker;
 use alloc::rc::Rc;
 use futures::future::LocalBoxFuture;
 use std::cell::RefCell;
-use wasm_bindgen::prelude::wasm_bindgen;
 use wasm_bindgen::JsValue;
 use wasm_bindgen_futures::future_to_promise;
 
@@ -18,20 +17,15 @@ pub trait CallbackWorker: WebWorker {
     ) -> LocalBoxFuture<'static, ()>;
 }
 
-#[wasm_bindgen]
-#[derive(Clone)]
-#[doc(hidden)]
-pub struct CallbackWorkerFn {
-    pub(crate) path: &'static str,
+pub(crate) struct CallbackWorkerFn {
+    pub(crate) _path: &'static str,
     pub(crate) function: fn(WorkerMsg, Box<dyn Fn(WorkerMsg)>),
 }
 
 impl CallbackWorkerFn {
-    #[must_use]
-    #[doc(hidden)]
-    pub fn new<W: CallbackWorker>() -> Self {
+    fn new<W: CallbackWorker>() -> Self {
         Self {
-            path: W::path(),
+            _path: W::path(),
             function: move |request, callback| {
                 let callback = Rc::new(callback);
                 let callback2 = callback.clone();
@@ -52,22 +46,14 @@ impl CallbackWorkerFn {
     }
 }
 
-mod private {
-    use crate::workers::callback_worker::{CallbackWorkerFn, CALLBACK_WORKER_FN};
-    use js_sys::global;
-    use wasm_bindgen::prelude::wasm_bindgen;
-    use wasm_bindgen::JsValue;
-    use web_sys::DedicatedWorkerGlobalScope;
-
-    #[wasm_bindgen]
-    pub fn register_callback_worker(callback_worker: &CallbackWorkerFn) {
+#[doc(hidden)]
+pub fn register_callback_worker<W: CallbackWorker>() {
+    fn register(callback_fn: CallbackWorkerFn) {
         console_error_panic_hook::set_once();
 
-        let worker_scope: DedicatedWorkerGlobalScope = JsValue::from(global()).into();
-        if worker_scope.name() == callback_worker.path {
-            CALLBACK_WORKER_FN.with_borrow_mut(move |opt| *opt = Some(callback_worker.clone()));
-        }
+        CALLBACK_WORKER_FN.with_borrow_mut(move |opt| *opt = Some(callback_fn));
     }
+    register(CallbackWorkerFn::new::<W>());
 }
 
 thread_local! {
