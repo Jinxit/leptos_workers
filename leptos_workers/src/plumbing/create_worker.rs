@@ -6,8 +6,6 @@ use web_sys::{window, Blob, BlobPropertyBag, Url, Worker, WorkerOptions, WorkerT
 
 use crate::workers::WebWorker;
 
-use super::dedicated_worker;
-
 /// Describes failures related to worker creation.
 #[derive(Error, Debug, Clone)]
 #[non_exhaustive]
@@ -110,9 +108,10 @@ fn find_js_wasm_urls() -> Result<(Url, Url), CreateWorkerError> {
     resolve_js_wasm_path(&js_path, &wasm_path)
 }
 
-pub fn create_worker<W: WebWorker>() -> Result<Worker, CreateWorkerError> {
+pub fn create_unifunctional_worker<W: WebWorker>() -> Result<Worker, CreateWorkerError> {
     let (js_url, wasm_url) = find_js_wasm_urls()?;
-    let module_def = dedicated_worker::web_module(&js_url.to_string(), &wasm_url.to_string());
+    let module_def =
+        super::unifunctional_worker::web_module(&js_url.to_string(), &wasm_url.to_string());
     create_worker_from_module(W::path(), &module_def)
 }
 

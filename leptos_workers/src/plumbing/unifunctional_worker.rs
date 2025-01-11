@@ -1,4 +1,4 @@
-//! A dedicated web-worker handles a specific type of worker function and is started on demand.
+//! A uni-functional web-worker handles a specific type of worker function and is started on demand.
 use crate::messages::WorkerMsg;
 use crate::messages::WorkerMsgType;
 use crate::workers::CALLBACK_WORKER_FN;

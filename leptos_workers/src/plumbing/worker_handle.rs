@@ -1,5 +1,5 @@
 use crate::messages::{WorkerMsg, WorkerMsgType};
-use crate::plumbing::{create_worker, CreateWorkerError};
+use crate::plumbing::{create_unifunctional_worker, CreateWorkerError};
 use crate::workers::CallbackWorker;
 use crate::workers::ChannelWorker;
 use crate::workers::FutureWorker;
@@ -24,7 +24,7 @@ pub struct WorkerHandle<W: WebWorker> {
 impl<W: WebWorker> WorkerHandle<W> {
     pub(crate) fn new() -> Result<Self, CreateWorkerError> {
         Ok(Self {
-            worker: create_worker::<W>()?,
+            worker: create_unifunctional_worker::<W>()?,
             _phantom: PhantomData,
         })
     }
