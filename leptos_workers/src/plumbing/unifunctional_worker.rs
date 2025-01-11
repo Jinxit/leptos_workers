@@ -44,24 +44,16 @@ pub(crate) fn web_module(js_url: &JsString, wasm_url: &JsString) -> String {
             let mod = await init("{wasm_url}");
             
             let future_worker_fn = mod["WORKERS_FUTURE_" + self.name];
-            if (future_worker_fn) {{
-                mod["WORKERS_FUTURE_" + self.name]();
-            }}
+            if (future_worker_fn) {{ future_worker_fn(); }}
             
             let stream_worker_fn = mod["WORKERS_STREAM_" + self.name];
-            if (stream_worker_fn) {{
-                mod["WORKERS_STREAM_" + self.name]();
-            }}
+            if (stream_worker_fn) {{ stream_worker_fn(); }}
             
             let callback_worker_fn = mod["WORKERS_CALLBACK_" + self.name];
-            if (callback_worker_fn) {{
-                mod["WORKERS_CALLBACK_" + self.name]();
-            }}
+            if (callback_worker_fn) {{ callback_worker_fn(); }}
             
             let channel_worker_fn = mod["WORKERS_CHANNEL_" + self.name];
-            if (channel_worker_fn) {{
-                mod["WORKERS_CHANNEL_" + self.name]();
-            }}
+            if (channel_worker_fn) {{ channel_worker_fn(); }}
             
             mod.init_workers();
         }}
