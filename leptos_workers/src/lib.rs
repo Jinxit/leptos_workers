@@ -235,7 +235,7 @@ pub use futures::stream::LocalBoxStream;
 #[doc(hidden)]
 pub use futures::stream::StreamExt;
 #[doc(hidden)]
-pub use wasm_bindgen::prelude::wasm_bindgen;
+pub use wasm_bindgen;
 
 extern crate alloc;
 extern crate core;
