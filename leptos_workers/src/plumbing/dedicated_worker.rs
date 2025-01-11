@@ -1,3 +1,4 @@
+//! A dedicated web-worker handles a specific type of worker function and is started on demand.
 use crate::messages::WorkerMsg;
 use crate::messages::WorkerMsgType;
 use crate::workers::CALLBACK_WORKER_FN;
@@ -7,6 +8,7 @@ use crate::workers::STREAM_WORKER_FN;
 use futures::StreamExt;
 use js_sys::global;
 use js_sys::Function;
+use js_sys::JsString;
 use tracing_subscriber::fmt;
 use tracing_subscriber_wasm::MakeConsoleWriter;
 use wasm_bindgen::prelude::*;
@@ -19,6 +21,53 @@ extern "C" {
 
     #[wasm_bindgen(method)]
     pub fn set_onmessage(this: &CustomWorkerGlobalScope, value: &Function);
+}
+
+pub(crate) fn web_module(js_url: &JsString, wasm_url: &JsString) -> String {
+    format!(
+        r#"
+        import init from "{js_url}";
+        
+        let queue = [];
+        self.onmessage = event => {{
+            queue.push(event);
+        }};
+        self.set_onmessage = (callback) => {{
+            self.onmessage = callback;
+            for (const event of queue) {{
+                self.onmessage(event);
+            }}
+            queue = [];
+        }}
+        
+        async function load() {{
+            let mod = await init("{wasm_url}");
+            
+            let future_worker_fn = mod["WORKERS_FUTURE_" + self.name];
+            if (future_worker_fn) {{
+                mod["WORKERS_FUTURE_" + self.name]();
+            }}
+            
+            let stream_worker_fn = mod["WORKERS_STREAM_" + self.name];
+            if (stream_worker_fn) {{
+                mod["WORKERS_STREAM_" + self.name]();
+            }}
+            
+            let callback_worker_fn = mod["WORKERS_CALLBACK_" + self.name];
+            if (callback_worker_fn) {{
+                mod["WORKERS_CALLBACK_" + self.name]();
+            }}
+            
+            let channel_worker_fn = mod["WORKERS_CHANNEL_" + self.name];
+            if (channel_worker_fn) {{
+                mod["WORKERS_CHANNEL_" + self.name]();
+            }}
+            
+            mod.init_workers();
+        }}
+        load();
+        "#
+    )
 }
 
 #[wasm_bindgen]
