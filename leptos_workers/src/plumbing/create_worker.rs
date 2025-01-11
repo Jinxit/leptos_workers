@@ -6,6 +6,8 @@ use web_sys::{window, Blob, BlobPropertyBag, Url, Worker, WorkerOptions, WorkerT
 
 use crate::workers::WebWorker;
 
+use super::dedicated_worker;
+
 /// Describes failures related to worker creation.
 #[derive(Error, Debug, Clone)]
 #[non_exhaustive]
@@ -17,8 +19,8 @@ pub enum CreateWorkerError {
     #[error("No document object found")]
     NoDocument,
     #[doc(hidden)]
-    #[error("Javascript error when getting window.href: {0:?}")]
-    WindowHref(JsValue),
+    #[error("Javascript error when getting document.baseURI: {0:?}")]
+    DocumentBaseUri(JsValue),
     #[doc(hidden)]
     #[error("Javascript error when building the WASM URL: {0:?}")]
     WasmUrl(JsValue),
@@ -30,7 +32,24 @@ pub enum CreateWorkerError {
     NewWorker(JsValue),
 }
 
-pub fn create_worker<W: WebWorker>() -> Result<Worker, CreateWorkerError> {
+fn resolve_js_wasm_path(js_path: &str, wasm_path: &str) -> Result<(Url, Url), CreateWorkerError> {
+    let document = window()
+        .ok_or(CreateWorkerError::NoWindow)?
+        .document()
+        .ok_or(CreateWorkerError::NoDocument)?;
+    let base_uri = document
+        .base_uri()
+        .map_err(CreateWorkerError::DocumentBaseUri)?;
+    let create_uri = |url| match &base_uri {
+        Some(base) => Url::new_with_base(url, base),
+        None => Url::new(url),
+    };
+    let js_url = create_uri(js_path).map_err(CreateWorkerError::WasmUrl)?;
+    let wasm_url = create_uri(wasm_path).map_err(CreateWorkerError::WasmUrl)?;
+    Ok((js_url, wasm_url))
+}
+
+fn find_js_wasm_urls() -> Result<(Url, Url), CreateWorkerError> {
     // try to find the output name from the environment at compile time
     let output_name = option_env!("LEPTOS_OUTPUT_NAME").or_else(|| option_env!("CARGO_BIN_NAME"));
 
@@ -88,80 +107,29 @@ pub fn create_worker<W: WebWorker>() -> Result<Worker, CreateWorkerError> {
             )
         }
     };
-    create_worker_with_url::<W>(&js_path, &wasm_path)
+    resolve_js_wasm_path(&js_path, &wasm_path)
 }
 
-pub fn create_worker_with_url<W: WebWorker>(
-    js_path: &str,
-    wasm_path: &str,
-) -> Result<Worker, CreateWorkerError> {
-    let worker_js_blob = {
-        let base = window()
-            .ok_or(CreateWorkerError::NoWindow)?
-            .location()
-            .href()
-            .map_err(CreateWorkerError::WindowHref)?;
-        let js_url = Url::new_with_base(js_path, &base)
-            .map_err(CreateWorkerError::WasmUrl)?
-            .to_string();
-        let wasm_url = Url::new_with_base(wasm_path, &base)
-            .map_err(CreateWorkerError::WasmUrl)?
-            .to_string();
+pub fn create_worker<W: WebWorker>() -> Result<Worker, CreateWorkerError> {
+    let (js_url, wasm_url) = find_js_wasm_urls()?;
+    let module_def = dedicated_worker::web_module(&js_url.to_string(), &wasm_url.to_string());
+    create_worker_from_module(W::path(), &module_def)
+}
 
-        string_to_blob(
-            BlobPropertyBag::new().type_("application/javascript"),
-            &format!(
-                r#"
-                import init from "{js_url}";
-                
-                let queue = [];
-                self.onmessage = event => {{
-                    queue.push(event);
-                }};
-                self.set_onmessage = (callback) => {{
-                    self.onmessage = callback;
-                    for (const event of queue) {{
-                        self.onmessage(event);
-                    }}
-                    queue = [];
-                }}
-                
-                async function load() {{
-                    let mod = await init("{wasm_url}");
-                    
-                    let future_worker_fn = mod["WORKERS_FUTURE_" + self.name];
-                    if (future_worker_fn) {{
-                        mod["WORKERS_FUTURE_" + self.name]();
-                    }}
-                    
-                    let stream_worker_fn = mod["WORKERS_STREAM_" + self.name];
-                    if (stream_worker_fn) {{
-                        mod["WORKERS_STREAM_" + self.name]();
-                    }}
-                    
-                    let callback_worker_fn = mod["WORKERS_CALLBACK_" + self.name];
-                    if (callback_worker_fn) {{
-                        mod["WORKERS_CALLBACK_" + self.name]();
-                    }}
-                    
-                    let channel_worker_fn = mod["WORKERS_CHANNEL_" + self.name];
-                    if (channel_worker_fn) {{
-                        mod["WORKERS_CHANNEL_" + self.name]();
-                    }}
-                    
-                    mod.init_workers();
-                }}
-                load();
-            "#
-            ),
-        )?
-    };
+fn create_worker_from_module(
+    worker_name: &str,
+    module_def: &str,
+) -> Result<Worker, CreateWorkerError> {
+    let worker_js_blob = string_to_blob(
+        BlobPropertyBag::new().type_("application/javascript"),
+        module_def,
+    )?;
     let blob_url =
         Url::create_object_url_with_blob(&worker_js_blob).map_err(CreateWorkerError::BlobUrl)?;
     let worker = Worker::new_with_options(
         &blob_url,
         WorkerOptions::new()
-            .name(W::path())
+            .name(worker_name)
             .type_(WorkerType::Module),
     )
     .map_err(CreateWorkerError::NewWorker)?;

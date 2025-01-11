@@ -43,7 +43,7 @@ features = [
     "ErrorEvent",
     "HtmlElement",
     "HtmlInputElement",
-    "Location",
+    "Node",
     "MessageEvent",
     "Navigator",
     "Performance",
