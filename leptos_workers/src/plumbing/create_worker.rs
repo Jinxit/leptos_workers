@@ -128,29 +128,28 @@ pub fn create_worker_with_url<W: WebWorker>(
                 
                 async function load() {{
                     let mod = await init("{wasm_url}");
-                    let {{ init_workers, register_future_worker, register_stream_worker, register_callback_worker, register_channel_worker, memory }} = mod;
                     
                     let future_worker_fn = mod["WORKERS_FUTURE_" + self.name];
                     if (future_worker_fn) {{
-                        register_future_worker(mod["WORKERS_FUTURE_" + self.name]());
+                        mod["WORKERS_FUTURE_" + self.name]();
                     }}
                     
                     let stream_worker_fn = mod["WORKERS_STREAM_" + self.name];
                     if (stream_worker_fn) {{
-                        register_stream_worker(mod["WORKERS_STREAM_" + self.name]());
+                        mod["WORKERS_STREAM_" + self.name]();
                     }}
                     
                     let callback_worker_fn = mod["WORKERS_CALLBACK_" + self.name];
                     if (callback_worker_fn) {{
-                        register_callback_worker(mod["WORKERS_CALLBACK_" + self.name]());
+                        mod["WORKERS_CALLBACK_" + self.name]();
                     }}
                     
                     let channel_worker_fn = mod["WORKERS_CHANNEL_" + self.name];
                     if (channel_worker_fn) {{
-                        register_channel_worker(mod["WORKERS_CHANNEL_" + self.name]());
+                        mod["WORKERS_CHANNEL_" + self.name]();
                     }}
                     
-                    init_workers();
+                    mod.init_workers();
                 }}
                 load();
             "#

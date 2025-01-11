@@ -8,7 +8,6 @@ use std::{
     cell::RefCell,
     sync::{atomic::AtomicBool, Arc, Mutex},
 };
-use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::spawn_local;
 
 /// Takes multiple requests and can reply with multiple responses using channels.
@@ -26,19 +25,14 @@ pub trait ChannelWorker: WebWorker {
     ) -> LocalBoxFuture<'static, ()>;
 }
 
-#[wasm_bindgen]
-#[derive(Clone)]
-#[doc(hidden)]
-pub struct ChannelWorkerFn {
-    pub(crate) path: &'static str,
+pub(crate) struct ChannelWorkerFn {
+    pub(crate) _path: &'static str,
     pub(crate) function:
         Arc<dyn Fn(WorkerMsg, Box<dyn Fn(WorkerMsg) + Send + Sync + 'static>) + 'static>,
 }
 
 impl ChannelWorkerFn {
-    #[must_use]
-    #[doc(hidden)]
-    pub fn new<W: ChannelWorker>() -> Self {
+    fn new<W: ChannelWorker>() -> Self {
         /*
            Note: This callback starts empty and gets set each time a message is sent,
                  which is probably unnecessary - but it's the easiest way without storing
@@ -71,7 +65,7 @@ impl ChannelWorkerFn {
 
         let already_initialized = AtomicBool::new(false);
         Self {
-            path: W::path(),
+            _path: W::path(),
             function: Arc::new(move |request, new_callback| {
                 if request.is_null() {
                     let mut request_tx = request_tx.lock().expect("mutex should not be poisoned");
@@ -102,25 +96,16 @@ impl ChannelWorkerFn {
     }
 }
 
-mod private {
-
-    use crate::workers::channel_worker::{ChannelWorkerFn, CHANNEL_WORKER_FN};
-    use js_sys::global;
-    use wasm_bindgen::prelude::wasm_bindgen;
-    use wasm_bindgen::JsValue;
-    use web_sys::DedicatedWorkerGlobalScope;
-
-    #[wasm_bindgen]
-    pub fn register_channel_worker(channel_worker: &ChannelWorkerFn) {
+#[doc(hidden)]
+pub fn register_channel_worker<W: ChannelWorker>() {
+    fn register(channel_worker: ChannelWorkerFn) {
         console_error_panic_hook::set_once();
 
-        let worker_scope: DedicatedWorkerGlobalScope = JsValue::from(global()).into();
-        if worker_scope.name() == channel_worker.path {
-            CHANNEL_WORKER_FN.with_borrow_mut(move |opt| {
-                *opt = Some(channel_worker.clone());
-            });
-        }
+        CHANNEL_WORKER_FN.with_borrow_mut(move |opt| {
+            *opt = Some(channel_worker);
+        });
     }
+    register(ChannelWorkerFn::new::<W>());
 }
 
 thread_local! {
