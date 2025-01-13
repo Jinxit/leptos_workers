@@ -6,8 +6,8 @@ use proc_macro_error::abort;
 use quote::quote;
 use syn::spanned::Spanned;
 use syn::{
-    parse_quote, parse_quote_spanned, Attribute, FnArg, Generics, Pat, ReturnType, Signature, Stmt,
-    Type, Visibility,
+    parse_quote, parse_quote_spanned, Attribute, FnArg, Generics, Pat, Path, ReturnType, Signature,
+    Stmt, Type, Visibility,
 };
 
 pub fn analyze(ast: Ast) -> Model {
@@ -223,7 +223,7 @@ impl WorkerType {
         }
     }
 
-    pub fn worker_registration_fn(&self) -> Type {
+    pub fn worker_registration_fn(&self) -> Path {
         match self {
             WorkerType::Callback(_) => parse_quote!(register_callback_worker),
             WorkerType::Channel(_) => parse_quote!(register_channel_worker),
