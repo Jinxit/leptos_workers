@@ -17,62 +17,59 @@ ssr = ["leptos_workers_macro/ssr"]
 [dependencies]
 leptos_workers_macro = { path = "../leptos_workers_macro", version = "0.2.2" }
 
-console_error_panic_hook = "0.1"
-const_format = "0.2"
-flume = "0.11"
-futures = "0.3"
-js-sys = "0.3"
-send_wrapper = "0.6"
-serde = { version = "1.0", features = ["derive"] }
-serde-wasm-bindgen = "0.6"
-thiserror = "1.0"
-tracing = { version = "0.1", features = ["log"] }
-tracing-subscriber = "0.3"
-tracing-subscriber-wasm = "0.1"
-wasm-bindgen = "0.2"
-wasm-bindgen-futures = "0.4"
-xxhash-rust = { version = "0.8", features = ["const_xxh64"] }
-
-[dependencies.web-sys]
-version = "0.3"
-features = [
-    "console",
-    "Blob",
-    "BlobPropertyBag",
-    "DedicatedWorkerGlobalScope",
-    "Document",
-    "ErrorEvent",
-    "HtmlElement",
-    "HtmlInputElement",
-    "Node",
-    "MessageEvent",
-    "Navigator",
-    "Performance",
-    "ServiceWorker",
-    "ServiceWorkerContainer",
-    "ServiceWorkerGlobalScope",
-    "ServiceWorkerRegistration",
-    "ServiceWorkerState",
-    "ServiceWorkerUpdateViaCache",
-    "Url",
-    "Window",
-    "Worker",
-    "WorkerLocation",
-    "WorkerOptions",
-    "WorkerType",
-    "MessageChannel",
-    "MessagePort",
-    "WritableStream",
-    "TransformStream",
-    "ImageBitmap",
-    "OffscreenCanvas",
-    "RtcDataChannel",
-    "RtcPeerConnection",
-]
+console_error_panic_hook = { workspace = true }
+const_format = { workspace = true }
+flume = { workspace = true }
+futures = { workspace = true }
+js-sys = { workspace = true }
+send_wrapper = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde-wasm-bindgen = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true, features = ["log"] }
+tracing-subscriber = { workspace = true }
+tracing-subscriber-wasm = { workspace = true }
+wasm-bindgen = { workspace = true }
+wasm-bindgen-futures = { workspace = true }
+xxhash-rust = { workspace = true, features = ["const_xxh64"] }
+web-sys = { workspace = true, features = [
+  "console",
+  "Blob",
+  "BlobPropertyBag",
+  "DedicatedWorkerGlobalScope",
+  "Document",
+  "ErrorEvent",
+  "HtmlElement",
+  "HtmlInputElement",
+  "Node",
+  "MessageEvent",
+  "Navigator",
+  "Performance",
+  "ServiceWorker",
+  "ServiceWorkerContainer",
+  "ServiceWorkerGlobalScope",
+  "ServiceWorkerRegistration",
+  "ServiceWorkerState",
+  "ServiceWorkerUpdateViaCache",
+  "Url",
+  "Window",
+  "Worker",
+  "WorkerLocation",
+  "WorkerOptions",
+  "WorkerType",
+  "MessageChannel",
+  "MessagePort",
+  "WritableStream",
+  "TransformStream",
+  "ImageBitmap",
+  "OffscreenCanvas",
+  "RtcDataChannel",
+  "RtcPeerConnection",
+] }
 
 [dev-dependencies]
-gloo-timers = { version = "0.3", features = ["futures"]}
-trybuild = "1.0"
-pollster = "0.3"
-wasm-bindgen-test = "0.3"
-paste = "1.0"
+gloo-timers = { workspace = true, features = ["futures"] }
+trybuild = { workspace = true }
+pollster = { workspace = true }
+wasm-bindgen-test = { workspace = true }
+paste = { workspace = true }

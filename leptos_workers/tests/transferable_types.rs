@@ -1,3 +1,4 @@
+#![cfg(target_arch = "wasm32")]
 use std::collections::HashMap;
 
 use js_sys::Uint8Array;
@@ -254,7 +255,9 @@ transferable_test! {
         arr.copy_from(jpg_data.as_slice());
         let parts = js_sys::Array::new();
         parts.push(&arr.buffer());
-        let image = web_sys::Blob::new_with_u8_array_sequence_and_options(&parts, web_sys::BlobPropertyBag::new().type_("image/jpeg")).unwrap();
+        let bag = web_sys::BlobPropertyBag::new();
+        bag.set_type("image/jpeg");
+        let image = web_sys::Blob::new_with_u8_array_sequence_and_options(&parts, &bag).unwrap();
         wasm_bindgen_futures::JsFuture::from(
             web_sys::window().unwrap().create_image_bitmap_with_blob(&image).unwrap()
         ).await.unwrap().unchecked_into::<web_sys::ImageBitmap>()

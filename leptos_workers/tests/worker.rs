@@ -1,3 +1,4 @@
+#![cfg(target_arch = "wasm32")]
 #![allow(clippy::self_assignment)]
 
 use gloo_timers::future::TimeoutFuture;

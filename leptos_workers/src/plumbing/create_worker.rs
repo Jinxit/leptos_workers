@@ -119,19 +119,20 @@ fn create_worker_from_module(
     worker_name: &str,
     module_def: &str,
 ) -> Result<Worker, CreateWorkerError> {
-    let worker_js_blob = string_to_blob(
-        BlobPropertyBag::new().type_("application/javascript"),
-        module_def,
-    )?;
+    let bag = BlobPropertyBag::new();
+    bag.set_type("application/javascript");
+
+    let worker_js_blob = string_to_blob(&bag, module_def)?;
+
     let blob_url =
         Url::create_object_url_with_blob(&worker_js_blob).map_err(CreateWorkerError::BlobUrl)?;
-    let worker = Worker::new_with_options(
-        &blob_url,
-        WorkerOptions::new()
-            .name(worker_name)
-            .type_(WorkerType::Module),
-    )
-    .map_err(CreateWorkerError::NewWorker)?;
+
+    let opts = WorkerOptions::new();
+    opts.set_name(worker_name);
+    opts.set_type(WorkerType::Module);
+
+    let worker =
+        Worker::new_with_options(&blob_url, &opts).map_err(CreateWorkerError::NewWorker)?;
 
     Ok(worker)
 }

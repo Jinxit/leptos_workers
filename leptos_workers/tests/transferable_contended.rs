@@ -1,3 +1,4 @@
+#![cfg(target_arch = "wasm32")]
 /// NOTE: this test doesn't do much until underlying worker contention issue fixed.
 /// Once fixed, increasing num_calls = x will "properly" enable this test.
 /// At the moment it would error after an increase with a generic worker issue.
