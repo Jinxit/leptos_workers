@@ -197,7 +197,10 @@ async fn heavy_loop_is_interactive() {
                 let future = heavy_loop(TestRequest(5));
                 let future_result = future.await;
                 assert_eq!(future_result.unwrap().0, 10);
-                **done.lock().unwrap().borrow_mut() = true;
+                **done
+                    .lock()
+                    .expect("mutex should not be poisoned")
+                    .borrow_mut() = true;
             }
         }
     };
@@ -211,7 +214,7 @@ async fn heavy_loop_is_interactive() {
         let mut counter = 0;
         let mut total_diff = 0.0;
         let mut last_tick = performance.now();
-        while !*done.lock().unwrap() {
+        while !*done.lock().expect("mutex should not be poisoned") {
             TimeoutFuture::new(0).await;
             let now = performance.now();
             // 100 ms is enough to not have flaky tests but still plenty below the expected 2 seconds
