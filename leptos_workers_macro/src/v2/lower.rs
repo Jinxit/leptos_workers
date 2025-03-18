@@ -3,7 +3,7 @@ use crate::v2::analyze::{
 };
 use proc_macro2::Ident;
 use proc_macro2::TokenStream;
-use proc_macro_error::abort;
+use proc_macro_error2::abort;
 use quote::{format_ident, quote_spanned};
 use syn::parse::{Parse, ParseStream};
 use syn::parse_quote;

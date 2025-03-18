@@ -1,5 +1,5 @@
 use proc_macro2::{Delimiter, TokenStream, TokenTree};
-use proc_macro_error::abort;
+use proc_macro_error2::abort;
 use quote::{quote_spanned, ToTokens};
 use syn::spanned::Spanned;
 

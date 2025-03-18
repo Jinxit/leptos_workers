@@ -8,7 +8,7 @@ use crate::v2::analyze::analyze;
 use crate::v2::codegen::codegen;
 use crate::v2::lower::lower;
 use crate::v2::parse::parse;
-use proc_macro_error::proc_macro_error;
+use proc_macro_error2::proc_macro_error;
 
 extern crate proc_macro2;
 
