@@ -2,7 +2,7 @@ use crate::v2::parse::Ast;
 use crate::v2::pattern_match_hole::pattern_match_holes;
 use indoc::indoc;
 use proc_macro2::Ident;
-use proc_macro_error::abort;
+use proc_macro_error2::abort;
 use quote::quote;
 use syn::spanned::Spanned;
 use syn::{

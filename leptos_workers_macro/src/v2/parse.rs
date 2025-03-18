@@ -1,6 +1,6 @@
 use convert_case::{Case, Casing};
 use proc_macro2::{Ident, TokenStream};
-use proc_macro_error::abort;
+use proc_macro_error2::abort;
 use quote::format_ident;
 use syn::parse::{Parse, ParseStream};
 use syn::{Item, ItemFn};
