@@ -170,6 +170,7 @@ fn analyze_worker_type(sig: &Signature) -> WorkerType {
     }
 }
 
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum WorkerType {
     Callback(WorkerTypeCallback),
