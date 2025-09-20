@@ -4,7 +4,7 @@ use crate::workers::ChannelWorker;
 use crate::workers::FutureWorker;
 use crate::workers::StreamWorker;
 use crate::workers::WebWorker;
-use futures::{Stream, StreamExt};
+use futures::{select, FutureExt, Stream, StreamExt};
 use std::future::Future;
 use std::sync::{Arc, Mutex, Weak};
 use wasm_bindgen_futures::spawn_local;
@@ -246,8 +246,8 @@ impl<W: ChannelWorker> PoolExecutor<W> {
         CreateWorkerError,
     > {
         let worker = self.get_or_create_worker()?;
-        let (proxy_tx, proxy_rx) = flume::unbounded();
-        let (abort_handle, (worker_tx, worker_rx)) = {
+        let (proxy_tx, proxy_rx) = flume::bounded(0);
+        let (abort_handle, (worker_tx, worker_rx, done_rx)) = {
             let mut w = worker.lock().expect("mutex should not be poisoned");
             w.generation += 1;
             let abort_handle = AbortHandle {
@@ -256,18 +256,40 @@ impl<W: ChannelWorker> PoolExecutor<W> {
             };
             (abort_handle, w.handle.channel(init))
         };
-        spawn_local(async move {
-            while let Ok(request) = proxy_rx.recv_async().await {
-                if worker_tx.send(request).is_err() {
-                    break;
+        spawn_local({
+            let generation = abort_handle.generation;
+            async move {
+                let mut recv = proxy_rx.recv_async().fuse();
+                let mut done = done_rx.fuse();
+
+                loop {
+                    select! {
+                        _ = done => {
+                            break;
+                        }
+                        request = recv => {
+                            match request {
+                                Ok(request) => {
+                                    if worker_tx.send(request).is_err() {
+                                        break;
+                                    }
+                                    recv = proxy_rx.recv_async().fuse();
+                                }
+                                Err(_) => {
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+                if let Ok(mut worker) = worker.lock() {
+                    if worker.generation == generation {
+                        worker.available = true;
+                    }
                 }
             }
-            // TODO: is this correct? this and other sending error needs testing
-            worker
-                .lock()
-                .expect("mutex should not be poisoned")
-                .available = true;
         });
+
         Ok((abort_handle, proxy_tx, worker_rx))
     }
 }

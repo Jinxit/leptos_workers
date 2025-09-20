@@ -456,6 +456,7 @@ dependencies = [
  "console_error_panic_hook",
  "flume",
  "futures",
+ "futures-channel",
  "gloo-timers 0.3.0",
  "js-sys",
  "leptos_workers_macro",

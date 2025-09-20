@@ -4,6 +4,7 @@ use crate::{
 };
 use futures::future::LocalBoxFuture;
 use serde::{de::DeserializeOwned, Serialize};
+use std::sync::atomic::Ordering;
 use std::{
     cell::RefCell,
     sync::{atomic::AtomicBool, Arc, Mutex},
@@ -40,11 +41,11 @@ impl ChannelWorkerFn {
         */
         type Callback = Arc<Mutex<Option<Box<dyn Fn(WorkerMsg) + Send + Sync + 'static>>>>;
         let callback: Callback = Arc::default();
-        let (request_tx, request_rx) = flume::unbounded();
-        let (response_tx, response_rx) = flume::unbounded();
-        let request_tx = Arc::new(Mutex::new(Some(request_tx)));
+        let request_tx: Arc<Mutex<Option<flume::Sender<W::Request>>>> = Arc::new(Mutex::new(None));
 
         let initializer = Mutex::new(Some(move |callback: &Callback, init: W::Init| {
+            let (response_tx, response_rx) = flume::bounded(0);
+            let (new_request_tx, request_rx) = flume::unbounded();
             spawn_local(Box::pin(W::channel(init, request_rx, response_tx)));
             spawn_local(Box::pin({
                 let callback = callback.clone();
@@ -61,6 +62,7 @@ impl ChannelWorkerFn {
                     }
                 }
             }));
+            new_request_tx
         }));
 
         let already_initialized = AtomicBool::new(false);
@@ -70,25 +72,25 @@ impl ChannelWorkerFn {
                 if request.is_null() {
                     let mut request_tx = request_tx.lock().expect("mutex should not be poisoned");
                     *request_tx = None;
-                } else if let Some(request_tx) =
-                    &*request_tx.lock().expect("mutex should not be poisoned")
-                {
+                    already_initialized.store(false, Ordering::Relaxed);
+                } else {
                     *callback.lock().expect("mutex should not be poisoned") = Some(new_callback);
 
-                    if already_initialized.swap(true, std::sync::atomic::Ordering::Relaxed) {
+                    if already_initialized.swap(true, Ordering::Relaxed) {
                         let request_data = request.into_inner();
                         // this will error when the receiver is dropped
-                        let _ = request_tx.send(request_data);
+                        if let Some(request_tx) =
+                            &*request_tx.lock().expect("mutex should not be poisoned")
+                        {
+                            let _ = request_tx.send(request_data);
+                        }
                     } else {
                         // On first call, the message will contain the init data that can be used to start the worker fn.
-                        (initializer
-                            .lock()
-                            .expect("mutex should not be poisoned")
-                            .take()
-                            .expect("Initializer shouldn't have been taken yet."))(
-                            &callback,
-                            request.into_inner(),
-                        );
+                        let lock = initializer.lock().expect("mutex should not be poisoned");
+                        let initializer = lock.expect("Initializer shouldn't have been taken yet.");
+                        let new_request_tx = initializer(&callback, request.into_inner());
+                        *request_tx.lock().expect("mutex should not be poisoned") =
+                            Some(new_request_tx);
                     }
                 }
             }),

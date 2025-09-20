@@ -68,6 +68,19 @@ pub async fn channel_worker_with_mut_arg(
     }
 }
 
+/// Only replies once.
+#[worker(TestChannelWorkerOnce)]
+pub async fn channel_worker_once(
+    init: TestInit,
+    rx: leptos_workers::Receiver<TestRequest>,
+    tx: leptos_workers::Sender<TestResponse>,
+) {
+    if let Ok(req) = rx.recv_async().await {
+        let resp = req.0 * 2;
+        tx.send_async(TestResponse(resp)).await.unwrap();
+    }
+}
+
 #[worker(TestFutureWorker)]
 pub async fn future_worker(req: TestRequest) -> TestResponse {
     TimeoutFuture::new(5000).await;
@@ -154,6 +167,38 @@ async fn channel_worker_test() {
     let second = rx.recv_async().await.unwrap();
     assert_eq!(first.0, 10);
     assert_eq!(second.0, 14);
+    drop(tx);
+    TimeoutFuture::new(1000).await;
+    let res = rx.try_recv();
+    assert_eq!(res, Err(TryRecvError::Disconnected));
+}
+
+#[cfg(not(feature = "ssr"))]
+#[wasm_bindgen_test]
+async fn channel_worker_twice() {
+    use flume::{TryRecvError, TrySendError};
+    use std::mem::drop;
+
+    let (tx, rx) = channel_worker_once(TestInit(3)).unwrap();
+    tx.send_async(TestRequest(5)).await.unwrap();
+    let first = rx.recv_async().await.unwrap();
+    TimeoutFuture::new(1000).await;
+    let res = tx.try_send(TestRequest(7));
+    assert_ne!(res, Ok(()));
+    assert!(matches!(res, Err(TrySendError::Disconnected(_))));
+    assert_eq!(first.0, 10);
+    drop(tx);
+
+    TimeoutFuture::new(1000).await;
+    let res = rx.try_recv();
+    assert_eq!(res, Err(TryRecvError::Disconnected));
+
+    let (tx, rx) = channel_worker_once(TestInit(3)).unwrap();
+    tx.send_async(TestRequest(6)).await.unwrap();
+    TimeoutFuture::new(1000).await;
+    tx.try_send(TestRequest(8)).unwrap_err();
+    let first = rx.recv_async().await.unwrap();
+    assert_eq!(first.0, 12);
     drop(tx);
     TimeoutFuture::new(1000).await;
     let res = rx.try_recv();

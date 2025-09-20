@@ -20,6 +20,7 @@ leptos_workers_macro = { path = "../leptos_workers_macro", version = "0.3.0" }
 console_error_panic_hook = { workspace = true }
 flume = { workspace = true }
 futures = { workspace = true }
+futures-channel = { workspace = true }
 js-sys = { workspace = true }
 send_wrapper = { workspace = true }
 serde = { workspace = true, features = ["derive"] }

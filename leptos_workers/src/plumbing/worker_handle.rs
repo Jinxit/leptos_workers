@@ -7,6 +7,7 @@ use crate::workers::StreamWorker;
 use crate::workers::WebWorker;
 use alloc::rc::Rc;
 use futures::{FutureExt, Stream, StreamExt};
+use futures_channel::oneshot;
 use send_wrapper::SendWrapper;
 use std::cell::RefCell;
 use std::marker::PhantomData;
@@ -130,34 +131,75 @@ impl<W: ChannelWorker> WorkerHandle<W> {
     pub fn channel(
         &mut self,
         init: W::Init,
-    ) -> (flume::Sender<W::Request>, flume::Receiver<W::Response>) {
+    ) -> (
+        flume::Sender<W::Request>,
+        flume::Receiver<W::Response>,
+        oneshot::Receiver<()>,
+    ) {
         // Send the init data through directly:
         WorkerMsg::new(WorkerMsgType::ReqChannel, init).post(&*self.worker);
 
-        let (request_tx, request_rx) = flume::unbounded::<W::Request>();
+        let (request_tx, request_rx) = flume::bounded::<W::Request>(0);
         let (response_tx, response_rx) = flume::unbounded::<W::Response>();
+        let (done_tx, done_rx) = oneshot::channel();
+        let done_tx = Rc::new(RefCell::new(Some(done_tx)));
+
+        let worker = self.worker.clone();
         let response_tx = Rc::new(RefCell::new(Some(response_tx)));
-        let closure: Closure<dyn FnMut(MessageEvent)> = Closure::new(move |event: MessageEvent| {
-            let response = WorkerMsg::decode(event.data());
-            if response.is_null() {
-                *response_tx.borrow_mut() = None;
-            } else {
-                let response_data: W::Response = response.into_inner();
-                // this will error if the stream is dropped on the receiver side
-                // that's ok, however we have no choice but to keep going
-                if let Some(response_tx) = response_tx.borrow().as_ref() {
-                    let _ = response_tx.send(response_data);
+
+        let (forwarder, abort_handle) = futures::future::abortable({
+            let worker = worker.clone();
+            let response_tx = response_tx.clone();
+            let done_tx = done_tx.clone();
+            async move {
+                while let Ok(request) = request_rx.recv_async().await {
+                    WorkerMsg::new(WorkerMsgType::ReqChannel, request).post(&*worker);
+                }
+                WorkerMsg::new_null(WorkerMsgType::ReqChannel).post(&*worker);
+                response_tx.borrow_mut().take();
+                worker.set_onmessage(None);
+                if let Some(done_tx) = done_tx.borrow_mut().take() {
+                    let _ = done_tx.send(());
                 }
             }
         });
-        let worker = self.worker.clone();
+
+        let shutdown = {
+            let worker = worker.clone();
+            let response_tx = response_tx.clone();
+            let abort_handle = abort_handle.clone();
+            move || {
+                response_tx.borrow_mut().take();
+                WorkerMsg::new_null(WorkerMsgType::ReqChannel).post(&*worker);
+                abort_handle.abort();
+                worker.set_onmessage(None);
+                if let Some(done_tx) = done_tx.borrow_mut().take() {
+                    let _ = done_tx.send(());
+                }
+            }
+        };
+
+        let closure: Closure<dyn FnMut(MessageEvent)> = Closure::new({
+            let shutdown = Rc::new(shutdown);
+            let response_tx = response_tx.clone();
+            move |event: MessageEvent| {
+                let response = WorkerMsg::decode(event.data());
+                if response.is_null() {
+                    shutdown();
+                    return;
+                }
+                let response_data: W::Response = response.into_inner();
+                if let Some(response_tx) = response_tx.borrow().as_ref() {
+                    if response_tx.send(response_data).is_err() {
+                        shutdown();
+                    }
+                }
+            }
+        });
         worker.set_onmessage(Some(closure.into_js_value().as_ref().unchecked_ref()));
         spawn_local(async move {
-            while let Ok(request) = request_rx.recv_async().await {
-                WorkerMsg::new(WorkerMsgType::ReqChannel, request).post(&*worker);
-            }
-            WorkerMsg::new_null(WorkerMsgType::ReqChannel).post(&*worker);
+            let _ = forwarder.await;
         });
-        (request_tx, response_rx)
+        (request_tx, response_rx, done_rx)
     }
 }
