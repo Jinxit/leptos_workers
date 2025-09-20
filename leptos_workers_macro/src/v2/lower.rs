@@ -5,6 +5,7 @@ use proc_macro2::Ident;
 use proc_macro2::TokenStream;
 use proc_macro_error::abort;
 use quote::{format_ident, quote_spanned};
+use std::slice;
 use syn::parse::{Parse, ParseStream};
 use syn::parse_quote;
 use syn::spanned::Spanned;
@@ -283,7 +284,7 @@ fn lower_impl_type_worker_future(model: &Model, future: &WorkerTypeFuture) -> (I
 
     let request_pat_name = get_ident_from_pat(request_pat);
 
-    let thread_pool = thread_pool(model, &[request_pat_name.clone()]);
+    let thread_pool = thread_pool(model, slice::from_ref(&request_pat_name));
 
     let func = parse_quote_spanned!(worker_name.span()=>
         #(#function_attrs)*
@@ -339,7 +340,7 @@ fn lower_impl_type_worker_stream(model: &Model, stream: &WorkerTypeStream) -> (I
 
     let request_pat_name = get_ident_from_pat(request_pat);
 
-    let thread_pool = thread_pool(model, &[request_pat_name.clone()]);
+    let thread_pool = thread_pool(model, slice::from_ref(&request_pat_name));
 
     let response_type_spanned: TokenStream =
         quote_spanned!(return_type.span()=> impl ::leptos_workers::Stream<Item = #response_type>);

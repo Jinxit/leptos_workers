@@ -1,6 +1,7 @@
 #![warn(clippy::pedantic)]
 #![allow(clippy::unnecessary_wraps)]
 #![allow(clippy::too_many_arguments)]
+#![allow(clippy::large_enum_variant)]
 
 mod v2;
 

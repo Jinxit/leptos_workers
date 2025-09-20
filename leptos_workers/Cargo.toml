@@ -18,7 +18,6 @@ ssr = ["leptos_workers_macro/ssr"]
 leptos_workers_macro = { path = "../leptos_workers_macro", version = "0.3.0" }
 
 console_error_panic_hook = { workspace = true }
-const_format = { workspace = true }
 flume = { workspace = true }
 futures = { workspace = true }
 js-sys = { workspace = true }
@@ -31,7 +30,6 @@ tracing-subscriber = { workspace = true }
 tracing-subscriber-wasm = { workspace = true }
 wasm-bindgen = { workspace = true }
 wasm-bindgen-futures = { workspace = true }
-xxhash-rust = { workspace = true, features = ["const_xxh64"] }
 web-sys = { workspace = true, features = [
   "console",
   "Blob",
